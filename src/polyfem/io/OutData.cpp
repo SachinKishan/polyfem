@@ -1940,6 +1940,23 @@ namespace polyfem::io
 
 			writer.add_field("body_ids", ids);
 		}
+		bool enable_write_amips = true;
+
+		if (enable_write_amips)
+		{
+			std::cout<<"Writing new amips field here: ";
+			//call amips per point
+
+			//average amips per triangle
+
+			Eigen::MatrixXd energies(points.rows(), 1);
+
+			for (int i = 0; i < points.rows(); ++i)
+			{
+				energies(i) = i;
+			}
+			writer.add_field("AMIPS", ids);
+		}
 
 		// if (opts.export_field("rhs"))
 		// {

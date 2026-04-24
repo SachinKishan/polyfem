@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 
-FROM ubuntu:24.04
+FROM --platform=linux/amd64 ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Base build dependencies
@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/root/.ccache \
 
 # Build PolyFEM using ccache
 RUN --mount=type=cache,target=/root/.ccache \
-    cmake --build build -j"$(nproc)"
+    cmake --build build -j1
 
 # Runtime working directory
 WORKDIR /data
