@@ -7,6 +7,7 @@
 #include <polyfem/autogen/elastic_energies/AMIPS3d.hpp>
 #include <polyfem/autogen/elastic_energies/AMIPS3drest.hpp>
 
+
 namespace polyfem::assembler
 {
 	void AMIPSEnergy::add_multimaterial(const int index, const json &params, const Units &units, const std::string &root_path)
@@ -101,5 +102,39 @@ namespace polyfem::assembler
 				return weight * autogen::AMIPS3d_hessian(p, t, el_id, F);
 		}
 	}
+	/*
+	void AMIPSEnergy::compute_scalar_value(
+	const OutputData &data,
+	std::vector<NamedMatrix> &result) const
+	{
+		const auto &local_pts = data.local_pts;
+		const auto &bs = data.bs;
+		const auto &gbs = data.gbs;
+		const auto &displacement = data.fun;
+		const int el_id = data.el_id;
+		const double t = data.t;
+
+		ElementAssemblyValues vals;
+		vals.compute(el_id, size() == 3, local_pts, bs, gbs);
+
+		Eigen::MatrixXd val(bs.bases.size(), 1);
+
+		for (size_t j = 0; j < bs.bases.size(); ++j)
+		{
+			Eigen::MatrixXd deformation_grad(size(), size());
+			compute_diplacement_grad(size(), vals, local_pts, j, displacement, deformation_grad);
+
+			for (int d = 0; d < size(); ++d)
+				deformation_grad(d, d) += 1;
+
+			using DefGradMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, 0, 3, 3>;
+			DefGradMat F = deformation_grad.cast<double>();
+
+			const double e = elastic_energy<double>(local_pts.row(j), t, el_id, F);
+			val(j, 0) = std::isfinite(e) ? e : 0.0;
+		}
+
+		result.push_back({"AMIPS", val});
+	}*/
 
 } // namespace polyfem::assembler

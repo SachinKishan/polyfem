@@ -1,6 +1,7 @@
 #include "OutData.hpp"
 
 #include "Evaluator.hpp"
+#include "polyfem/assembler/AMIPSEnergy.hpp"
 
 #include <polyfem/State.hpp>
 
@@ -1940,23 +1941,171 @@ namespace polyfem::io
 
 			writer.add_field("body_ids", ids);
 		}
-		bool enable_write_amips = true;
 
+		bool enable_write_amips = true;
 		if (enable_write_amips)
 		{
-			std::cout<<"Writing new amips field here: ";
-			//call amips per point
+		    logger().info("saving amips energy to out.vtu");
+			const assembler::AMIPSEnergy &amips =
+        		dynamic_cast<const assembler::AMIPSEnergy &>(assembler);
+    		Eigen::MatrixXd amips_energy;
+    		Eigen::VectorXd energies = Eigen::VectorXd::Zero(points.rows());
+			Eigen::VectorXd energies_avg(points.rows());
+    		energies_avg.setZero();
+		    int pts_index = 0;
+    		for (int e = 0; e < (int)bases.size(); ++e)
+		    {
+        		Eigen::MatrixXd ref_pts;
+        		if (mesh.is_volume())
+        		{
+            		if (mesh.is_simplex(e))
+                		autogen::p_nodes_3d(disc_orders(e), ref_pts);
+            		else if (mesh.is_cube(e))
+                		autogen::q_nodes_3d(disc_orders(e), ref_pts);
+            		else continue;
+        		}
+        		else
+        		{
+            		if (mesh.is_simplex(e))
+                		autogen::p_nodes_2d(disc_orders(e), ref_pts);
+            		else if (mesh.is_cube(e))
+                		autogen::q_nodes_2d(disc_orders(e), ref_pts);
+            		else continue;
+        		}
 
-			//average amips per triangle
+		        amips.assign_stress_tensor(
+		    		assembler::OutputData(t, e, bases[e], gbases[e], ref_pts, sol),
+    				1, ElasticityTensorType::AMIPS, amips_energy,
+    				[](const Eigen::MatrixXd &x) { return x; });
 
-			Eigen::MatrixXd energies(points.rows(), 1);
 
+				energies_avg(e) = amips_energy.col(0).mean();
+
+		        for (int p = 0; p < ref_pts.rows(); ++p)
+        		    energies(pts_index++) = amips_energy(p, 0);
+    		}
+
+			Eigen::VectorXd energies_avg_pts = Eigen::VectorXd::Zero(points.rows());
+			for (int i = 0; i < points.rows(); ++i)
+    			energies_avg_pts(i) = energies_avg(el_id(i, 0));
+
+			writer.add_field("AMIPS", energies);
+			writer.add_field("AMIPS_average", energies_avg_pts);
+		}
+
+		/*
+		if (enable_write_amips)
+		{
+    		const assembler::AMIPSEnergy &amips =
+        		dynamic_cast<const assembler::AMIPSEnergy &>(assembler);
+    		const int dim = mesh.dimension();
+    		const int n_elements = bases.size();
+
+		    Eigen::VectorXd energies(points.rows());
+    		Eigen::VectorXd energies_avg(n_elements);
+    		energies_avg.setZero();
+
+		    int pts_index = 0;
+    		for (int e = 0; e < n_elements; ++e)
+    		{
+        		const auto &bs  = bases[e];
+        		const auto &gbs = gbases[e];
+
+		        Eigen::MatrixXd ref_pts;
+        		if (mesh.is_volume())
+        		{
+            		if (mesh.is_simplex(e))
+                		autogen::p_nodes_3d(disc_orders(e), ref_pts);
+            		else if (mesh.is_cube(e))
+                		autogen::q_nodes_3d(disc_orders(e), ref_pts);
+            		else continue;
+        		}
+        		else
+        		{
+            		if (mesh.is_simplex(e))
+                		autogen::p_nodes_2d(disc_orders(e), ref_pts);
+            		else if (mesh.is_cube(e))
+                		autogen::q_nodes_2d(disc_orders(e), ref_pts);
+            		else continue;
+       			}
+
+		        assembler::ElementAssemblyValues vals;
+        		vals.compute(e, mesh.is_volume(), ref_pts, bs, gbs);
+
+		        double elem_sum = 0;
+        		double weight_sum = 0;
+        		for (int p = 0; p < ref_pts.rows(); ++p)
+        		{
+            		Eigen::MatrixXd grad_u = Eigen::MatrixXd::Zero(dim, dim);
+            		for (const auto &b : vals.basis_values)
+            		{
+                		for (const auto &g : b.global)
+                		{
+                    		for (int d = 0; d < dim; ++d)
+                        		grad_u.row(d) += sol(g.index * dim + d) * b.grad.row(p);
+                		}
+            		}
+
+		            Eigen::MatrixXd F = grad_u;
+        		    for (int d = 0; d < dim; ++d)
+                		F(d, d) += 1.0;
+
+		            using DefGradMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, 0, 3, 3>;
+        		    DefGradMat F_ad = F.cast<double>();
+
+		            const double val = amips.elastic_energy<double>(ref_pts.row(p), t, e, F_ad);
+        		    const double w = vals.det(p);
+            		energies(pts_index) = std::isfinite(val) ? val : 1e10;
+            		elem_sum += energies(pts_index) * w;
+            		weight_sum += w;
+            		pts_index++;
+        		}
+        		energies_avg(e) = weight_sum > 0 ? elem_sum / weight_sum : 0.0;
+    		}
+
+		    // Broadcast per-element average to vis points
+		    Eigen::VectorXd energies_avg_pts = Eigen::VectorXd::Zero(points.rows());
+    		for (int i = 0; i < points.rows(); ++i)
+    		{
+        		const int e = el_id(i, 0);
+        		energies_avg_pts(i) = energies_avg(e);
+    		}
+
+		    writer.add_field("AMIPS", energies);
+    		writer.add_field("AMIPS_average", energies_avg_pts);
+		}
+		*/
+
+		///// new stuff
+		/*
+		if (enable_write_amips)
+		{
+			logger().info("saving amips energy to out.vtu");
+			const assembler::AMIPSEnergy &amips =
+				dynamic_cast<const assembler::AMIPSEnergy &>(assembler);
+			const int n_elements = bases.size();
+			Eigen::VectorXd energies_avg(n_elements);
+			for (int e = 0; e < n_elements; ++e)
+			{
+				assembler::ElementAssemblyValues vals;
+				vals.compute(e, mesh.is_volume(), bases[e], gbases[e]);
+				const auto &quadrature = vals.quadrature;
+				const QuadratureVector da = vals.det.array() * quadrature.weights.array();
+				const assembler::NonLinearAssemblerData data(vals, t, dt, sol, sol, da);
+				energies_avg(e) = amips.compute_energy(data);
+			}
+			Eigen::VectorXd avg_energies = Eigen::VectorXd::Zero(points.rows());
 			for (int i = 0; i < points.rows(); ++i)
 			{
-				energies(i) = i;
+				//get element and assign to the vtu
+				const int e = el_id(i, 0);
+				avg_energies(i) = energies_avg(e);
 			}
-			writer.add_field("AMIPS", ids);
+			//writer.add_field("AMIPS", energies);
+			writer.add_field("AMIPS_average", avg_energies);
 		}
+		*/
+
 
 		// if (opts.export_field("rhs"))
 		// {
