@@ -66,7 +66,8 @@ namespace polyfem::assembler
 
 			const T powJ = pow(det, power);
 			const double weight = get_energy_weight(el_id);
-			return T(weight) * (def_grad.transpose() * def_grad).trace() / powJ; //+ barrier<T>::value(det);
+			auto value = T(weight) * (def_grad.transpose() * def_grad).trace() / powJ;
+			return value*value; //+ barrier<T>::value(det);
 		}
 
 	private:
