@@ -406,7 +406,7 @@ namespace polyfem::varform
 		if (!args["output"]["advanced"]["compute_error"])
 			return stats;
 
-		double tend = 0;
+		double tend = 1;
 		if (!args["time"].is_null())
 			tend = args["time"]["tend"];
 

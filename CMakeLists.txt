@@ -398,7 +398,7 @@ target_link_libraries(polyfem PRIVATE polyfem::warnings)
 # Main executable
 if(POLYFEM_TOPLEVEL_PROJECT)
     add_executable(${PROJECT_NAME}_bin src/polyfem/main.cpp
-            scratch/main.cpp)
+            )
 
     target_compile_features(${PROJECT_NAME}_bin PUBLIC cxx_std_14)
 

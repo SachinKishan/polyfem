@@ -28,6 +28,7 @@ set(test_sources
   test_varform_factory.cpp
   verify_run.cpp
   test_hgo_dispersion.cpp
+        test_ncmesh_standard.cpp
 )
 
 if(POLYFEM_WITH_OPTIMIZATION)

@@ -673,6 +673,7 @@ namespace polyfem
 						}
 
 				// create children
+
 				elements[id_full].children(0) = elements.size();
 				add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
 				elements[id_full].children(1) = elements.size();
@@ -689,6 +690,63 @@ namespace polyfem
 				add_element(Eigen::Vector4i(v6, v7, v9, v10), id_full);
 				elements[id_full].children(7) = elements.size();
 				add_element(Eigen::Vector4i(v6, v10, v9, v8), id_full);
+
+				/*
+				auto point_of = [&](int all_idx) -> const Eigen::Vector3d & { return vertices[all_idx].pos; };
+
+				// create children
+				elements[id_full].children(0) = elements.size();
+				add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
+				elements[id_full].children(1) = elements.size();
+				add_element(Eigen::Vector4i(v5, v2, v8, v9), id_full);
+				elements[id_full].children(2) = elements.size();
+				add_element(Eigen::Vector4i(v6, v8, v3, v10), id_full);
+				elements[id_full].children(3) = elements.size();
+				add_element(Eigen::Vector4i(v7, v9, v10, v4), id_full);
+
+				const double d_v6_v9 = (point_of(v6) - point_of(v9)).norm();
+				const double d_v5_v10 = (point_of(v5) - point_of(v10)).norm();
+				const double d_v7_v8 = (point_of(v7) - point_of(v8)).norm();
+
+				if (d_v6_v9 <= d_v5_v10 && d_v6_v9 <= d_v7_v8)
+				{
+					// diagonal v6-v9 (PolyFEM's original fixed choice)
+					elements[id_full].children(4) = elements.size();
+					add_element(Eigen::Vector4i(v5, v6, v7, v9), id_full);
+					elements[id_full].children(5) = elements.size();
+					add_element(Eigen::Vector4i(v5, v9, v8, v6), id_full);
+					elements[id_full].children(6) = elements.size();
+					add_element(Eigen::Vector4i(v6, v7, v9, v10), id_full);
+					elements[id_full].children(7) = elements.size();
+					add_element(Eigen::Vector4i(v6, v10, v9, v8), id_full);
+				}
+				else if (d_v5_v10 <= d_v7_v8)
+				{
+					// diagonal v5-v10
+					elements[id_full].children(4) = elements.size();
+					add_element(Eigen::Vector4i(v5, v6, v7, v10), id_full);
+					elements[id_full].children(5) = elements.size();
+					add_element(Eigen::Vector4i(v5, v7, v9, v10), id_full);
+					elements[id_full].children(6) = elements.size();
+					add_element(Eigen::Vector4i(v5, v9, v8, v10), id_full);
+					elements[id_full].children(7) = elements.size();
+					add_element(Eigen::Vector4i(v5, v8, v6, v10), id_full);
+				}
+				else
+				{
+					// diagonal v7-v8
+					elements[id_full].children(4) = elements.size();
+					add_element(Eigen::Vector4i(v7, v5, v6, v8), id_full);
+					elements[id_full].children(5) = elements.size();
+					add_element(Eigen::Vector4i(v7, v6, v10, v8), id_full);
+					elements[id_full].children(6) = elements.size();
+					add_element(Eigen::Vector4i(v7, v10, v9, v8), id_full);
+					elements[id_full].children(7) = elements.size();
+					add_element(Eigen::Vector4i(v7, v9, v5, v8), id_full);
+				}
+*/
+
+
 			}
 
 			refineHistory.push_back(id_full);

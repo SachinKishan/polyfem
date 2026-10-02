@@ -1,0 +1,701 @@
+
+/*
+#include <polyfem/State.hpp>
+#include <polyfem/varforms/VarForm.hpp>
+#include <polyfem/utils/Logger.hpp>
+
+#include <Eigen/Dense>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+
+using namespace polyfem;
+
+int main(int argc, char **argv)
+{
+	const std::string scene = (argc > 1)
+		? argv[1]
+		: "/Users/sak9889/WORK/GitHub/Polyfem/polyfem-data/contact/examples/"
+	"2D/golf-ball-doformable-wall.json";
+
+	const std::string out_dir = (argc > 2) ? argv[2] : "/tmp/scratch-out";
+	std::filesystem::create_directories(out_dir);
+
+	json in_args;
+	{
+		std::ifstream f(scene);
+		if (!f.is_open())
+		{
+			std::cerr << "cannot open " << scene << "\n";
+			return EXIT_FAILURE;
+		}
+		f >> in_args;
+	}
+
+	// lets relative mesh paths and the "common" include resolve
+	in_args["root_path"] = scene;
+	in_args["/output/directory"_json_pointer] = std::filesystem::absolute(out_dir).string();
+	in_args["/output/log/level"_json_pointer] = 1; // debug
+
+	State state;
+	state.init(in_args, /*strict_validation=*/
+
+/*true);
+	state.load_mesh(/*non_conforming=*/
+/*
+true);
+	Eigen::MatrixXd sol;
+	state.solve(sol);
+
+	logger().info("sol: {} x {}", sol.rows(), sol.cols());
+	logger().info("max |u| = {}", sol.cwiseAbs().maxCoeff());
+
+	state.variational_formulation->save_json(sol);
+	state.variational_formulation->export_data(sol);
+
+	return EXIT_SUCCESS;
+}
+*/
+
+#include "pybind11/attr.h"
+
+#include <polyfem/State.hpp>
+#include <polyfem/Units.hpp>
+#include <polyfem/varforms/VarForm.hpp>
+#include <polyfem/mesh/GeometryReader.hpp>
+#include <polyfem/mesh/mesh2D/NCMesh2D.hpp>
+#include <polyfem/mesh/mesh3D/NCMesh3D.hpp>
+#include <polyfem/utils/Logger.hpp>
+
+#include <Eigen/Dense>
+#include <cmath>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+
+#include <paraviewo/VTUWriter.hpp>
+
+
+
+using namespace polyfem;
+
+double min_angle(const polyfem::mesh::Mesh &mesh)
+{
+	const int dim = mesh.dimension();
+	double result = std::numeric_limits<double>::infinity();
+
+	for (int e = 0; e < mesh.n_elements(); ++e)
+	{
+		Eigen::Vector3d p[4];
+		for (int i = 0; i <= dim; ++i)
+		{
+			p[i].setZero();
+			p[i].head(dim) = mesh.point(mesh.element_vertex(e, i)).transpose();
+		}
+
+		const int tris[4][3] = {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}};
+		const int n_tris = (dim == 2) ? 1 : 4;
+		for (int t = 0; t < n_tris; ++t)
+			for (int c = 0; c < 3; ++c)
+			{
+				const Eigen::Vector3d u = p[tris[t][(c + 1) % 3]] - p[tris[t][c]];
+				const Eigen::Vector3d v = p[tris[t][(c + 2) % 3]] - p[tris[t][c]];
+				const double angle = std::atan2(u.cross(v).norm(), u.dot(v)) * 180.0 / M_PI;
+				result = std::min(result, angle);
+			}
+	}
+	return result;
+}
+
+double max_angle(const polyfem::mesh::Mesh &mesh)
+{
+	const int dim = mesh.dimension();
+	double result = -std::numeric_limits<double>::infinity();
+
+	for (int e = 0; e < mesh.n_elements(); ++e)
+	{
+		Eigen::Vector3d p[4];
+		for (int i = 0; i <= dim; ++i)
+		{
+			p[i].setZero();
+			p[i].head(dim) = mesh.point(mesh.element_vertex(e, i)).transpose();
+		}
+
+		const int tris[4][3] = {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}};
+		const int n_tris = (dim == 2) ? 1 : 4;
+		for (int t = 0; t < n_tris; ++t)
+			for (int c = 0; c < 3; ++c)
+			{
+				const Eigen::Vector3d u = p[tris[t][(c + 1) % 3]] - p[tris[t][c]];
+				const Eigen::Vector3d v = p[tris[t][(c + 2) % 3]] - p[tris[t][c]];
+				const double angle = std::atan2(u.cross(v).norm(), u.dot(v)) * 180.0 / M_PI;
+				result = std::max(result, angle);
+			}
+	}
+	return result;
+}
+
+
+void dump_mesh_vtu(mesh::NCMesh2D *nc, const std::string &path)
+{
+	nc->prepare_mesh();
+
+	Eigen::MatrixXd V(nc->n_vertices(), 2);
+	for (int i = 0; i < nc->n_vertices(); ++i)
+		V.row(i) = nc->point(i);
+
+	Eigen::MatrixXi F(nc->n_faces(), 3);
+	for (int f = 0; f < nc->n_faces(); ++f)
+		for (int lv = 0; lv < 3; ++lv)
+			F(f, lv) = nc->face_vertex(f, lv);
+
+	paraviewo::VTUWriter writer;
+	writer.write_mesh(path, V, F, paraviewo::CellType::Triangle);
+	std::cout<<"wrote debug mesh to "<<path<<std::endl;
+
+}
+
+void dump_mesh_vtu(mesh::NCMesh3D *nc, const std::string &path)
+{
+	nc->prepare_mesh();
+
+	Eigen::MatrixXd V(nc->n_vertices(), 3);
+	for (int i = 0; i < nc->n_vertices(); ++i)
+		V.row(i) = nc->point(i);
+
+	Eigen::MatrixXi F(nc->n_cells(), 4);
+	for (int c = 0; c < nc->n_cells(); ++c)
+		for (int lv = 0; lv < 4; ++lv)
+			F(c, lv) = nc->cell_vertex(c, lv);
+
+	paraviewo::VTUWriter writer;
+	writer.write_mesh(path, V, F, paraviewo::CellType::Tetrahedron);
+	std::cout << "wrote debug mesh to " << path << std::endl;
+}
+
+void dump_mesh_vtu(const mesh::Mesh *m, const std::string &path)
+{
+	Eigen::MatrixXd V(m->n_vertices(), 2);
+	for (int i = 0; i < m->n_vertices(); ++i)
+		V.row(i) = m->point(i);
+
+	Eigen::MatrixXi F(m->n_faces(), 3);
+	for (int f = 0; f < m->n_faces(); ++f)
+		for (int lv = 0; lv < 3; ++lv)
+			F(f, lv) = m->face_vertex(f, lv);
+
+	paraviewo::VTUWriter writer;
+	writer.write_mesh(path, V, F, paraviewo::CellType::Triangle);
+	std::cout << "wrote debug mesh to " << path << std::endl;
+}
+
+namespace
+{
+	// Uniform levels applied to the 2-triangle square before anything else,
+	// so the non-uniform step has more than two elements to work with.
+	constexpr int kBaseRefs = 1;
+
+	struct Result
+	{
+		int level;
+		double h;   // hmax (max edge length), from OutStatsData::mesh_size
+		double l2;  // O(h^{p+1})
+		double h1s; // O(h^p)
+	};
+
+	Result run_one(const json &base_args, const int p, const int level,
+				   const bool nonuniform, const std::string &out_dir)
+	{
+		json args = base_args;
+		args["space"]["discr_order"] = p;
+		//args["/output/directory"_json_pointer] = "/tmp/solutions";
+		args["output"]["paraview"]["file_name"] = "sol_nc_L_" + std::to_string(level) + ".vtu";
+		//args["output"]["paraview"]["vismesh_rel_area"] = 1e-5; // smaller = finer sampling, default is usually fine
+
+		State state;
+		state.init(args, /*strict_validation=*/true);
+
+		const std::string debug_dir = "/tmp/mesh_visual_itr_debug/";
+
+		// Pushes the validated/adjusted args into the varform and loads a mesh.
+		// That mesh is replaced below; set_mesh is public, and bases/assembly
+		// are built lazily inside solve(), so replacing it here is safe.
+		state.load_mesh(/*non_conforming=*/true);
+
+		Units units;
+		units.init(state.args["units"]);
+		std::unique_ptr<mesh::Mesh> m = mesh::read_fem_geometry(
+			units, state.args["geometry"], state.args["root_path"],
+			{}, {}, {}, /*non_conforming=*/true);
+
+		auto *nc = dynamic_cast<mesh::NCMesh2D *>(m.get());
+		if (!nc)
+			log_and_throw_error("Expected an NCMesh2D (2D triangle mesh).");
+
+
+
+		//base mesh refinement
+		nc->refine(kBaseRefs, 0.5);
+
+		dump_mesh_vtu(nc, debug_dir + "nc_before_nonuniform_refinement_" + std::to_string(level) + ".vtu");
+
+		if (nonuniform)
+		{
+			// Two passes -> leaf levels 0 / 1 / 2 across the domain.
+			// prepare_mesh() is needed before refine_elements() because it
+			// builds the valid->all element id maps that refine_elements uses.
+			for (const double xcut : {0.5})
+			{
+				nc->prepare_mesh();
+				std::vector<int> ids;
+				for (int f = 0; f < nc->n_faces(); ++f)
+					if (nc->face_barycenter(f)(0) < xcut)
+						ids.push_back(f);
+				nc->refine_elements(ids);
+			}
+		}
+		nc->prepare_mesh();
+		dump_mesh_vtu(nc, debug_dir + "nc_after_nonuniform_refinement_" + std::to_string(level) + ".vtu");
+
+
+		//additional refinement
+		dump_mesh_vtu(nc, debug_dir + "nc_before_uniform_refinement_" + std::to_string(level) + ".vtu");
+		nc->refine(level,0.5);
+		dump_mesh_vtu(nc, debug_dir + "nc_after_uniform_refinement_" + std::to_string(level) + ".vtu");
+
+		nc->prepare_mesh();
+
+
+		state.variational_formulation->set_mesh(std::move(m));
+
+		Eigen::MatrixXd sol;
+		state.solve(sol);
+
+		state.variational_formulation->export_data(sol);
+
+		const io::OutStatsData stats = state.variational_formulation->compute_errors(sol);
+		return {level, stats.mesh_size, stats.l2_err, stats.h1_semi_err};
+	}
+
+	Result refine3d_test(const json &base_args, const int p , const int refinementLevel, const int refinements)
+	{
+		json args = base_args;
+		args["space"]["discr_order"] = p;
+		args["output"]["paraview"]["file_name"] = "sol_nc_3D_L_" + std::to_string(refinementLevel) + ".vtu";
+
+		State state;
+		state.init(args, /*strict_validation=*/true);
+
+		const std::string debug_dir = "/tmp/mesh_visual_itr_debug/";
+		state.load_mesh(/*non_conforming=*/true);
+
+		Units units;
+		units.init(state.args["units"]);
+		std::unique_ptr<mesh::Mesh> m = mesh::read_fem_geometry(
+			units, state.args["geometry"], state.args["root_path"],
+			{}, {}, {}, /*non_conforming=*/true);
+
+		auto *nc = dynamic_cast<mesh::NCMesh3D *>(m.get());
+		if (!nc)
+			log_and_throw_error("Expected an NCMesh3D (3D tet mesh).");
+
+
+
+		//base mesh refinement
+		nc->refine(kBaseRefs, 0.5);
+		dump_mesh_vtu(nc, debug_dir + "nc_before_nonuniform_refinement_3d_" + std::to_string(refinements) + ".vtu");
+
+		// nu refinement
+		/*
+		nc->prepare_mesh();
+		Eigen::RowVector3d p0(0.25, 0, 0); //plane pos
+		Eigen::RowVector3d n(1, 0, 0); // plane normal
+		n.normalize();
+
+		std::vector<int> ids;
+		for (int i=0;i<refinements;i++)
+		{
+			ids.clear();
+
+			for (int c = 0; c < nc->n_cells(); ++c)
+			{
+				for (int lv = 0; lv < 4; ++lv)
+				{
+					const Eigen::RowVector3d p = nc->point(nc->cell_vertex(c, lv));
+					if ((p - p0).dot(n) < 0)
+					{
+						ids.push_back(c);
+						break;
+					}
+				}
+			}
+			nc->refine_elements(ids);
+			nc->prepare_mesh();
+
+		}
+		*/
+
+		auto min_a= min_angle(*nc);
+		auto max_a = max_angle(*nc);
+
+		std::cout<<"Min angle "<< refinementLevel<<" : " <<min_a<<std::endl;
+		std::cout<<"Max angle "<< refinementLevel<<" : " <<max_a<<std::endl;
+
+		dump_mesh_vtu(nc, debug_dir + "nc_after_nonuniform_refinement_3d_" + std::to_string(refinements) + ".vtu");
+
+
+		//additional refinement
+		dump_mesh_vtu(nc, debug_dir + "nc_before_uniform_refinement_" + std::to_string(refinementLevel) + ".vtu");
+		nc->refine(refinementLevel,0.5);
+		dump_mesh_vtu(nc, debug_dir + "nc_after_uniform_refinement_" + std::to_string(refinementLevel) + ".vtu");
+
+		nc->prepare_mesh();
+		state.variational_formulation->set_mesh(std::move(m));
+
+		Eigen::MatrixXd sol;
+		//state.solve(sol);
+
+		//state.variational_formulation->export_data(sol);
+
+		//const io::OutStatsData stats = state.variational_formulation->compute_errors(sol);
+		return {0,0,0,0};
+		//return {refinementLevel, stats.mesh_size, stats.l2_err, stats.h1_semi_err};
+
+	}
+
+
+	void refinement_test(const json &base_args, const int p, const int number_of_refinements)
+	{
+		json args = base_args;
+		args["space"]["discr_order"] = p;
+
+		State state;
+		state.init(args, /*strict_validation=*/true);
+
+		const std::string debug_dir = "/tmp/mesh_visual_itr_debug/";
+		std::filesystem::create_directories(debug_dir);
+		state.load_mesh(/*non_conforming=*/true);
+
+		Units units;
+		units.init(state.args["units"]);
+		std::unique_ptr<mesh::Mesh> m = mesh::read_fem_geometry(
+			units, state.args["geometry"], state.args["root_path"],
+			{}, {}, {}, /*non_conforming=*/true);
+
+		auto *nc = dynamic_cast<mesh::NCMesh3D *>(m.get());
+		if (!nc)
+			log_and_throw_error("Expected an NCMesh3D (3D tet mesh).");
+
+		// base mesh refinement
+		nc->refine(kBaseRefs, 0.5);
+		nc->prepare_mesh(); // NCMesh3D::refine does not rebuild the valid-element index maps
+
+		// one row per iteration: iteration 0 is the mesh after the base refinement
+		const std::string csv_path = debug_dir + "angles_p" + std::to_string(p) + ".csv";
+		std::ofstream csv(csv_path);
+		csv.precision(17);
+		csv << "iteration,n_elements,min_angle,max_angle\n";
+
+		auto record = [&](const int iteration) {
+			const double min_a = min_angle(*nc);
+			const double max_a = max_angle(*nc);
+			csv << iteration << "," << nc->n_cells() << "," << min_a << "," << max_a << "\n";
+			std::cout << "iter " << iteration << ": cells " << nc->n_cells()
+					  << ", min angle " << min_a << ", max angle " << max_a << std::endl;
+		};
+
+		record(0);
+		for (int i = 1; i <= number_of_refinements; ++i)
+		{
+			nc->refine(1, 0.5); // one uniform split of every current leaf element
+			nc->prepare_mesh();
+			record(i);
+		}
+		csv.close();
+
+		dump_mesh_vtu(nc, debug_dir + "ur_test_" + std::to_string(number_of_refinements) + ".vtu");
+
+		// nu refinement block: unchanged from your version, paste it back here
+	}
+
+
+	void refinement_test_nonuniform(const json &base_args, const int p, const int number_of_refinements)
+{
+    json args = base_args;
+    args["space"]["discr_order"] = p;
+
+    State state;
+    state.init(args, /*strict_validation=*/true);
+
+    const std::string debug_dir = "/tmp/mesh_visual_itr_debug/";
+    std::filesystem::create_directories(debug_dir);
+    state.load_mesh(/*non_conforming=*/true);
+
+    Units units;
+    units.init(state.args["units"]);
+    std::unique_ptr<mesh::Mesh> m = mesh::read_fem_geometry(
+        units, state.args["geometry"], state.args["root_path"],
+        {}, {}, {}, /*non_conforming=*/true);
+
+    auto *nc = dynamic_cast<mesh::NCMesh3D *>(m.get());
+    if (!nc)
+        log_and_throw_error("Expected an NCMesh3D (3D tet mesh).");
+
+    // base mesh refinement (uniform)
+    nc->refine(kBaseRefs, 0.5);
+    nc->prepare_mesh(); // refine_elements below needs up-to-date valid-element index maps
+
+    // refine every element that has at least one vertex on the negative side of this plane
+    const Eigen::RowVector3d plane_pos(0.25, 0, 0);
+    Eigen::RowVector3d plane_normal(1, 0, 0);
+    plane_normal.normalize();
+
+    const std::string csv_path = debug_dir + "angles_nonuniform_p" + std::to_string(p) + ".csv";
+    std::ofstream csv(csv_path);
+    csv.precision(17);
+    csv << "iteration,n_elements,min_angle,max_angle\n";
+
+    auto record = [&](const int iteration) {
+        const double min_a = min_angle(*nc);
+        const double max_a = max_angle(*nc);
+        csv << iteration << "," << nc->n_cells() << "," << min_a << "," << max_a << "\n";
+        std::cout << "iter " << iteration << ": cells " << nc->n_cells()
+                  << ", min angle " << min_a << ", max angle " << max_a << std::endl;
+    };
+
+    record(0);
+
+    std::vector<int> ids;
+    for (int i = 1; i <= number_of_refinements; ++i)
+    {
+        ids.clear();
+        for (int c = 0; c < nc->n_cells(); ++c)
+        {
+            for (int lv = 0; lv < 4; ++lv)
+            {
+                const Eigen::RowVector3d pt = nc->point(nc->cell_vertex(c, lv));
+                if ((pt - plane_pos).dot(plane_normal) < 0)
+                {
+                    ids.push_back(c);
+                    break;
+                }
+            }
+        }
+
+        nc->refine_elements(ids);
+        nc->prepare_mesh();
+        record(i);
+    }
+    csv.close();
+
+    dump_mesh_vtu(nc, debug_dir + "nur_test_" + std::to_string(number_of_refinements) + ".vtu");
+}
+
+
+
+
+
+
+
+
+
+
+
+	Result run_one_conforming(const json &base_args, const int p, const int level,
+				const std::string &out_dir)
+	{
+		json args = base_args;
+		args["space"]["discr_order"] = p;
+		args["geometry"]["n_refs"] = kBaseRefs + level;
+		args["/output/directory"_json_pointer] = "/tmp/solutions";
+		args["output"]["paraview"]["file_name"] = "sol_c_L_" + std::to_string(level) + ".vtu";
+		//args["output"]["paraview"]["vismesh_rel_area"] = 1e-5;
+
+		std::filesystem::create_directories("/tmp/solutions");   // match the path used above
+		std::filesystem::create_directories(out_dir);             // for the debug mesh dump below
+
+		State state;
+		state.init(args, /*strict_validation=*/true);
+		state.load_mesh(/*non_conforming=*/false);
+
+		Eigen::MatrixXd sol;
+		state.solve(sol);
+
+		dump_mesh_vtu(state.variational_formulation->output_space().mesh,
+			 out_dir + "/mesh_conforming_L" + std::to_string(level) + ".vtu");
+
+		state.variational_formulation->export_data(sol);
+		std::cout << "export_data returned, expected file at: /tmp/solutions/sol_c_L_0.vtu, exists="
+				  << std::filesystem::exists("/tmp/solutions/sol_c_L_0.vtu") << std::endl;
+
+		const io::OutStatsData stats = state.variational_formulation->compute_errors(sol);
+		return {level, stats.mesh_size, stats.l2_err, stats.h1_semi_err};
+	}
+
+
+
+
+
+
+	void print_table(const std::string &label, const int p, const std::vector<Result> &rs,
+					  std::ostream &out = std::cout)
+	{
+		out << "\n== " << label << ", p = " << p
+			<< "  (expect L2 rate ~" << p + 1 << ", H1-semi rate ~" << p << ")\n";
+		out << std::setw(5) << "lvl" << std::setw(13) << "h"
+			<< std::setw(13) << "L2" << std::setw(8) << "rate"
+			<< std::setw(13) << "H1semi" << std::setw(8) << "rate" << "\n";
+
+		for (size_t i = 0; i < rs.size(); ++i)
+		{
+			out << std::setw(5) << rs[i].level
+				<< std::setw(13) << std::scientific << std::setprecision(3) << rs[i].h
+				<< std::setw(13) << rs[i].l2;
+			if (i == 0)
+				out << std::setw(8) << "-";
+			else
+				out << std::setw(8) << std::fixed << std::setprecision(2)
+					<< std::log(rs[i - 1].l2 / rs[i].l2) / std::log(rs[i - 1].h / rs[i].h);
+
+			out << std::setw(13) << std::scientific << std::setprecision(3) << rs[i].h1s;
+			if (i == 0)
+				out << std::setw(8) << "-";
+			else
+				out << std::setw(8) << std::fixed << std::setprecision(2)
+					<< std::log(rs[i - 1].h1s / rs[i].h1s) / std::log(rs[i - 1].h / rs[i].h);
+			out << "\n";
+		}
+	}
+
+} // namespace
+
+int main(int argc, char **argv)
+{
+	// argv[1]: path to polyfem-data, argv[2]: output dir, argv[3]: max level
+	const std::string data_dir = (argc > 1) ? argv[1] : "/Users/sak9889/WORK/GitHub/Polyfem/polyfem-data";
+	const std::string out_root = (argc > 2) ? argv[2] : "/tmp/polyfem_test_output";
+	const int max_level = (argc > 3) ? std::stoi(argv[3]) : 3;
+
+	const std::string mesh_path = data_dir + "/contact/meshes/2D/simple/square.obj";
+
+
+
+	json base_args_generated = R"(
+		{
+  "geometry": [
+    {
+      "mesh": "/Users/sak9889/WORK/GitHub/Polyfem/polyfem-data/standard/simple_tet.msh",
+      "type": "mesh",
+      "advanced": {
+        "normalize_mesh": true
+      },
+      "n_refs": 0,
+      "surface_selection": 1
+    }
+  ],
+  "materials": [
+    {
+      "type": "Laplacian"
+    }
+  ],
+  "preset_problem": {
+    "type": "Franke"
+  },
+  "output": {
+    "directory": "tmp/test_of_builder",
+    "log": {
+      "level": 1
+    },
+    "paraview": {
+      "vismesh_rel_area": 0.00001,
+      "file_name": ""
+    }
+  }
+}
+
+	)"_json;
+
+	base_args_generated["space"]["advanced"]["bc_method"] = "lsq";
+
+
+	/*
+	json base_args = R"({
+		"geometry": {
+			"mesh": "",
+			"n_refs": 0,
+			"advanced": { "normalize_mesh": true }
+		},
+		"space": { "discr_order": 1 },
+		"materials": { "type": "Laplacian" },
+		"preset_problem": { "type": "Franke" },
+
+		"output": { "log": { "level": 1 } }
+	})"_json;
+
+	base_args["geometry"]["mesh"] = mesh_path;
+	base_args["root_path"] = mesh_path;
+	base_args["space"]["advanced"]["bc_method"] = "lsq";
+	base_args["geometry"]["surface_selection"] = 1;
+*/
+	std::vector<Result> rs;
+
+	auto refinement = {1};//,2,3};
+
+	std::string out_dir = out_root + "conforming";
+
+/*
+	rs.push_back(run_one_conforming(base_args,1,0,out_dir));
+
+	rs.push_back(run_one_conforming(base_args,1,1,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,2,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,3,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,4,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,5,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,6,out_dir));
+	rs.push_back(run_one_conforming(base_args,1,7,out_dir));
+
+	print_table("conformal with uniform refinement", 1, rs);
+	std::ofstream file("/tmp/franke-conv/results.txt");
+	print_table("uniform", 1, rs, file);       // writes to file
+*/
+
+
+	/*
+	for (const int p : refinement)
+	{
+		for (const bool nonuniform : {true})
+		{
+
+			for (int level = 0; level <= max_level; ++level)
+			{
+				out_dir = out_root + "/p" + std::to_string(p)
+											+ (nonuniform ? "_nonuniform" : "_uniform")
+											+ "_L" + std::to_string(level);
+				std::filesystem::create_directories(out_dir);
+				rs.push_back(run_one(base_args_generated, p, level, nonuniform, out_dir));
+			}
+			print_table("non-conformal with uniform refinement", p, rs);
+			std::ofstream file("/tmp/franke-conv/results.txt");
+			print_table("nc uniform", p, rs, file);       // writes to file
+
+		}
+	}
+	*/
+
+
+	/*
+	int p = 1;                 // fixed polynomial order across the sweep
+	for (int level = 1; level <= 10; ++level)
+	{
+		auto result = refine3d_test(base_args_generated, p, level, 0);
+		rs.push_back(result);
+	}
+	print_table("3D non-conforming, uniform refinement", p, rs);
+	*/
+
+	//refinement_test(base_args_generated,1,5);
+
+	refinement_test_nonuniform(base_args_generated,1,5);
+	return EXIT_SUCCESS;
+}
