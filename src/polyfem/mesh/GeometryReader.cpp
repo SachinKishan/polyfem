@@ -134,6 +134,10 @@ namespace polyfem::mesh
 
 			logger().info("Performing global h-refinement with {} refinements", n_refs);
 			mesh->refine(n_refs, refinement_location);
+			// NCMesh2D/NCMesh3D need their valid<->all index maps rebuilt after
+			// refine() before any other mesh query (boundary ids, basis building,
+			// ...) is safe to call; this is a no-op on conforming meshes.
+			mesh->prepare_mesh();
 			mesh->set_body_ids(std::vector<int>(mesh->n_elements(), uniform_value));
 		}
 
