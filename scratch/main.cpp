@@ -1,7 +1,8 @@
 #include <polyfem/State.hpp>
 #include <polyfem/Units.hpp>
 #include <polyfem/varforms/VarForm.hpp>
-#include <polyfem/mesh/GeometryReader.hpp>
+#include <polyfem/io/ResourceIO.hpp>
+#include <polyfem/mesh/GeometryLoader.hpp>
 #include <polyfem/mesh/mesh2D/NCMesh2D.hpp>
 #include <polyfem/mesh/mesh3D/NCMesh3D.hpp>
 #include <polyfem/utils/Logger.hpp>
@@ -276,15 +277,17 @@ double max_shape_ratio(const mesh::Mesh &mesh)
 
 	std::unique_ptr<mesh::Mesh> load_nc_mesh(State &state, json args)
 	{
+		// State::init strips root_path from args, so grab it first
+		const std::string root = args.contains("root_path") ? args["root_path"].get<std::string>() : std::string();
 		state.init(args, /*strict_validation=*/true);
 		// pushes the validated args into the varform; the mesh it loads is replaced by the one below
 		state.load_mesh(/*non_conforming=*/true);
 
 		Units units;
 		units.init(state.args["units"]);
-		return mesh::read_fem_geometry(
-			units, state.args["geometry"], state.args["root_path"],
-			{}, {}, {}, /*non_conforming=*/true);
+		const io::FileSystemIO resources(root);
+		return mesh::GeometryLoader(units, resources)
+			.load_fem(state.args["geometry"], /*non_conforming=*/true);
 	}
 
 	// Calls f(nc) with the concrete NCMesh2D or NCMesh3D. Inside f, query the mesh through a
