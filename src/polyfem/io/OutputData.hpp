@@ -15,6 +15,7 @@
 namespace polyfem::mesh
 {
 	class Obstacle;
+	class MeshNodes;
 } // namespace polyfem::mesh
 
 namespace ipc
@@ -84,5 +85,7 @@ namespace polyfem::io
 		const ipc::CollisionMesh *collision_mesh = nullptr;
 		const std::vector<int> *dirichlet_nodes = nullptr;
 		const std::vector<RowVectorNd> *dirichlet_nodes_position = nullptr;
+		/// Node numbering of the field space (node id = DOF id), when the formulation has one
+		const mesh::MeshNodes *mesh_nodes = nullptr;
 	};
 } // namespace polyfem::io

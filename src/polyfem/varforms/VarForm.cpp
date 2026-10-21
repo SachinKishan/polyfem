@@ -256,6 +256,22 @@ namespace polyfem::varform
 		child.init(formulation, units, args, out_path);
 	}
 
+	void VarForm::update_mesh(const std::function<void(mesh::Mesh &)> &f)
+	{
+		if (!mesh_)
+			log_and_throw_error("Load the mesh first!");
+
+		f(*mesh_);
+		output_sampler_initialized_ = false;
+		prepared_ = false;
+		load_mesh(*mesh_, args);
+	}
+
+	Eigen::VectorXd VarForm::compute_element_errors(const Eigen::MatrixXd &)
+	{
+		log_and_throw_error("Per-element errors are not implemented for formulation {}", name());
+	}
+
 	void VarForm::prepare()
 	{
 		if (prepared_)

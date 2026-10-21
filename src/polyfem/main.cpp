@@ -77,7 +77,12 @@ int forward_simulation_with_varform_state(const io::CheckpointReader &checkpoint
 
 int run_forward_simulation(State &state)
 {
-	state.load_mesh();
+	const bool non_conforming = state.args.value("/space/advanced/non_conforming_mesh"_json_pointer, false);
+	if (non_conforming && state.args.value("/contact/enabled"_json_pointer, false))
+		logger().warn("Running with a non-conforming mesh and contact enabled: the collision mesh is "
+					  "extracted from the conforming boundary only, so geometry at hanging-node "
+					  "interfaces is silently dropped from contact handling.");
+	state.load_mesh(non_conforming);
 
 	Eigen::MatrixXd sol;
 	state.solve(sol);
@@ -103,6 +108,12 @@ int forward_simulation_with_legacy_state(const std::vector<std::string> &names,
 	state.init(in_args, is_strict);
 
 	logger().warn("Running forward simulation with legacy state.");
+
+	const bool non_conforming = state.args.value("/space/advanced/non_conforming_mesh"_json_pointer, false);
+	if (non_conforming)
+		logger().warn("\"space\"/\"advanced\"/\"non_conforming_mesh\" is set, but this formulation is "
+					  "routed to the legacy solver, which does not support non-conforming meshes; "
+					  "loading a standard conforming mesh instead.");
 	state.load_mesh(/*non_conforming=*/false, names, cells, vertices);
 
 	// Mesh was not loaded successfully; load_mesh() logged the error.

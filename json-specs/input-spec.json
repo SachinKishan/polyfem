@@ -930,7 +930,8 @@
             "h1_formula",
             "count_flipped_els",
             "count_flipped_els_continuous",
-            "use_particle_advection"
+            "use_particle_advection",
+            "non_conforming_mesh"
         ],
         "doc": "Advanced settings for the FE space."
     },
@@ -945,6 +946,12 @@
         "default": false,
         "type": "bool",
         "doc": "Forces geometric map basis to be the same degree as the main variable basis, irrespective of the degree associated with the geom. map degrees associated with the elements of the geometry."
+    },
+    {
+        "pointer": "/space/advanced/non_conforming_mesh",
+        "default": false,
+        "type": "bool",
+        "doc": "Load the mesh as a non-conforming mesh (NCMesh2D/NCMesh3D) instead of a standard conforming mesh. Only simplicial (triangle/tetrahedron) input geometry is supported; high-order input geometry and prism/pyramid elements are not. Several formulations and features (contact, shape/material smoothing in optimization, node-ordering export) have reduced or no support on non-conforming meshes."
     },
     {
         "pointer": "/space/advanced/bc_method",

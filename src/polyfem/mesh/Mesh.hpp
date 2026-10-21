@@ -3,6 +3,7 @@
 #include <polyfem/mesh/MeshData.hpp>
 
 #include <polyfem/Common.hpp>
+#include <polyfem/mesh/RefinementMap.hpp>
 #include <polyfem/mesh/mesh2D/Navigation.hpp>
 #include <polyfem/utils/HashUtils.hpp>
 #include <polyfem/utils/Types.hpp>
@@ -11,6 +12,7 @@
 #include <geogram/mesh/mesh.h>
 
 #include <memory>
+#include <stdexcept>
 
 namespace polyfem
 {
@@ -86,6 +88,14 @@ namespace polyfem
 			/// @brief Create a copy of the mesh
 			/// @return pointer to the new copy mesh
 			virtual std::unique_ptr<Mesh> copy() const = 0;
+
+			/// @brief Correspondence between this mesh and a refinement of a copy of it
+			/// @param[in] fine Mesh obtained from copy() of this mesh followed by refinement; both must be prepared
+			/// @return Vertex, edge-midpoint and element correspondence, see RefinementMap
+			virtual RefinementMap refinement_map_to(const Mesh &fine) const
+			{
+				throw std::runtime_error("refinement_map_to is only implemented for non-conforming meshes.");
+			}
 
 			/// Split the mesh according to its per-element geometry IDs.
 			std::vector<MeshWithID> split() const;

@@ -407,7 +407,8 @@ namespace polyfem::varform
 			nullptr,
 			nullptr,
 			&boundary_.dirichlet_nodes,
-			&boundary_.dirichlet_nodes_position};
+			&boundary_.dirichlet_nodes_position,
+			space_.mesh_nodes.get()};
 	}
 
 	io::OutStatsData ScalarVarForm::compute_errors(const Eigen::MatrixXd &solution)
@@ -421,6 +422,19 @@ namespace polyfem::varform
 
 		stats.compute_errors(space_.n_bases, space_.basis_list(), space_.geometry_basis_list(), *mesh_, *problem, tend, solution);
 		return stats;
+	}
+
+	
+	Eigen::VectorXd ScalarVarForm::compute_element_errors(const Eigen::MatrixXd &solution)
+	{
+		double tend = 1;
+		if (!args["time"].is_null())
+			tend = args["time"]["tend"];
+
+		std::cout<<"Computing errors scalar formulation";
+
+		auto A = stats.compute_element_errors(space_.basis_list(), space_.geometry_basis_list(), *mesh_, *problem, tend, solution);
+		return A;
 	}
 
 	void ScalarVarForm::export_data(const Eigen::MatrixXd &solution) const

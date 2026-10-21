@@ -2857,6 +2857,58 @@ namespace polyfem::io
 		// flipped_elements.resize(std::distance(flipped_elements.begin(), it));
 	}
 
+	Eigen::VectorXd OutStatsData::compute_element_errors(
+		const std::vector<polyfem::basis::ElementBases> &bases,
+		const std::vector<polyfem::basis::ElementBases> &gbases,
+		const polyfem::mesh::Mesh &mesh,
+		const assembler::Problem &problem,
+		const double tend,
+		const Eigen::MatrixXd &sol) const
+	{
+		if (!problem.has_exact_sol())
+			log_and_throw_error("Per-element error requires an exact solution.");
+		if (bases.empty() || sol.size() <= 0)
+			log_and_throw_error("Build the bases and solve the problem first!");
+
+		const int dim = mesh.dimension();
+		const int actual_dim = problem.is_scalar() ? 1 : dim;
+
+		Eigen::VectorXd out(bases.size());
+		polyfem::assembler::ElementAssemblyValues vals;
+		Eigen::MatrixXd v_exact, v_exact_grad, v_approx, v_approx_grad;
+
+		for (int e = 0; e < int(bases.size()); ++e)
+		{
+			vals.compute(e, mesh.is_volume(), bases[e], gbases[e]);
+
+			problem.exact(vals.val, tend, v_exact);
+			problem.exact_grad(vals.val, tend, v_exact_grad);
+
+			v_approx.setZero(vals.val.rows(), actual_dim);
+			v_approx_grad.setZero(vals.val.rows(), dim * actual_dim);
+
+			for (const auto &bv : vals.basis_values)
+			{
+				for (const auto &g : bv.global)
+				{
+					for (int d = 0; d < actual_dim; ++d)
+					{
+						v_approx.col(d) += g.val * sol(g.index * actual_dim + d) * bv.val;
+						v_approx_grad.block(0, d * bv.grad_t_m.cols(), v_approx_grad.rows(), bv.grad_t_m.cols()) += g.val * sol(g.index * actual_dim + d) * bv.grad_t_m;
+					}
+				}
+			}
+
+			const Eigen::ArrayXd err2 = (v_exact - v_approx).rowwise().squaredNorm().array();
+			const Eigen::ArrayXd grad_err2 = (v_exact_grad - v_approx_grad).rowwise().squaredNorm().array();
+
+			//out(e) = ((err2 + grad_err2) * vals.det.array() * vals.quadrature.weights.array()).sum();
+			out(e) = (err2 * vals.det.array() * vals.quadrature.weights.array()).sum();
+		}
+
+		return out;
+	}
+
 	void OutStatsData::compute_errors(
 		const int n_bases,
 		const std::vector<polyfem::basis::ElementBases> &bases,

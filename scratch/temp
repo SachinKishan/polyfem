@@ -336,12 +336,6 @@ namespace
 		}
 		*/
 
-		auto min_a= min_angle(*nc);
-		auto max_a = max_angle(*nc);
-
-		std::cout<<"Min angle "<< refinementLevel<<" : " <<min_a<<std::endl;
-		std::cout<<"Max angle "<< refinementLevel<<" : " <<max_a<<std::endl;
-
 		dump_mesh_vtu(nc, debug_dir + "nc_after_nonuniform_refinement_3d_" + std::to_string(refinements) + ".vtu");
 
 

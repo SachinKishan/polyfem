@@ -92,6 +92,11 @@ namespace polyfem
 			void set_mesh(std::unique_ptr<mesh::Mesh> mesh, const double loading_mesh_time = 0);
 			void set_geometry(mesh::LoadedGeometry geometry, double loading_mesh_time = 0);
 
+			/// @brief Modify the owned mesh in place (e.g. refine it) and invalidate all data derived from it.
+			/// The next solve() rebuilds the bases and re-assembles from the modified mesh.
+			/// @param f function applied to the mesh
+			void update_mesh(const std::function<void(mesh::Mesh &)> &f);
+
 			/// @brief Solve the variational formulation and store the solution in the given matrix
 			/// @param sol matrix to store the solution
 			/// @param initial_condition_override Optional initial condition.
@@ -129,6 +134,11 @@ namespace polyfem
 			/// @brief Get the error statistics of the variational formulation, for output purposes
 			/// @return Error statistics
 			virtual io::OutStatsData compute_errors(const Eigen::MatrixXd &solution) = 0;
+			/// @brief Squared H1 error per element against the exact solution, in valid-element order.
+			/// Only implemented by formulations that support it.
+			/// @param solution Solution matrix
+			/// @return squared H1 error per element
+			virtual Eigen::VectorXd compute_element_errors(const Eigen::MatrixXd &solution);
 
 			/// @brief Save the solution to a JSON file, for output purposes
 			/// @param solution Solution matrix to save

@@ -1,3 +1,4 @@
+#include <polyfem/mesh/NCRefinementMap.hpp>
 #include <polyfem/mesh/mesh2D/NCMesh2D.hpp>
 
 #include <polyfem/utils/Logger.hpp>
@@ -569,6 +570,14 @@ namespace polyfem
 		std::unique_ptr<Mesh> NCMesh2D::copy() const
 		{
 			return std::make_unique<NCMesh2D>(*this);
+		}
+
+		RefinementMap NCMesh2D::refinement_map_to(const Mesh &fine) const
+		{
+			const auto *fine_nc = dynamic_cast<const NCMesh2D *>(&fine);
+			if (!fine_nc)
+				throw std::runtime_error("NCMesh2D::refinement_map_to: the fine mesh must also be an NCMesh2D.");
+			return detail::build_nc_refinement_map(*this, *fine_nc);
 		}
 
 		void NCMesh2D::traverse_edge(Eigen::Vector2i v, double p1, double p2, int depth, std::vector<follower_edge> &list) const

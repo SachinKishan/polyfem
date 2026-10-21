@@ -8,6 +8,9 @@ namespace polyfem
 	{
 		class NCMesh2D : public Mesh2D
 		{
+			template <class NC>
+			friend RefinementMap detail::build_nc_refinement_map(const NC &, const NC &);
+
 		public:
 			struct follower_edge
 			{
@@ -294,6 +297,8 @@ namespace polyfem
 			void append(const Mesh &mesh) override;
 
 			std::unique_ptr<Mesh> copy() const override;
+
+			RefinementMap refinement_map_to(const Mesh &fine) const override;
 
 		private:
 			struct ArrayHasher2D

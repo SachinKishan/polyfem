@@ -120,6 +120,23 @@ namespace polyfem::io
 							const double tend,
 							const Eigen::MatrixXd &sol);
 
+		/// @brief compute the squared H1 error (L2 of u - u_h plus L2 of grad(u) - grad(u_h)) on every element.
+		/// Requires an exact solution (problem.has_exact_sol()). Sum of the result is the squared H1 error.
+		/// Entry e corresponds to element e of bases, i.e. the valid element id after Mesh::prepare_mesh().
+		/// @param[in] bases bases
+		/// @param[in] gbases geometric bases
+		/// @param[in] mesh mesh
+		/// @param[in] problem problem
+		/// @param[in] tend end time step
+		/// @param[in] sol solution
+		/// @return squared H1 error per element
+		Eigen::VectorXd compute_element_errors(const std::vector<polyfem::basis::ElementBases> &bases,
+											   const std::vector<polyfem::basis::ElementBases> &gbases,
+											   const polyfem::mesh::Mesh &mesh,
+											   const assembler::Problem &problem,
+											   const double tend,
+											   const Eigen::MatrixXd &sol) const;
+
 		/// @brief compute stats (counts els type, mesh lenght, etc), step 1 of solve
 		/// @param mesh mesh
 		void compute_mesh_stats(const polyfem::mesh::Mesh &mesh);

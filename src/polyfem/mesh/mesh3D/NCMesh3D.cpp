@@ -1,3 +1,4 @@
+#include <polyfem/mesh/NCRefinementMap.hpp>
 #include <polyfem/mesh/mesh3D/NCMesh3D.hpp>
 #include <polyfem/mesh/MeshUtils.hpp>
 #include <polyfem/utils/StringUtils.hpp>
@@ -682,44 +683,26 @@ namespace polyfem
 						}
 
 				// create children
-
-				elements[id_full].children(0) = elements.size();
-				add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
-				elements[id_full].children(1) = elements.size();
-				add_element(Eigen::Vector4i(v5, v2, v8, v9), id_full);
-				elements[id_full].children(2) = elements.size();
-				add_element(Eigen::Vector4i(v6, v8, v3, v10), id_full);
-				elements[id_full].children(3) = elements.size();
-				add_element(Eigen::Vector4i(v7, v9, v10, v4), id_full);
-				elements[id_full].children(4) = elements.size();
-				add_element(Eigen::Vector4i(v5, v6, v7, v9), id_full);
-				elements[id_full].children(5) = elements.size();
-				add_element(Eigen::Vector4i(v5, v9, v8, v6), id_full);
-				elements[id_full].children(6) = elements.size();
-				add_element(Eigen::Vector4i(v6, v7, v9, v10), id_full);
-				elements[id_full].children(7) = elements.size();
-				add_element(Eigen::Vector4i(v6, v10, v9, v8), id_full);
-
-				/*
-				auto point_of = [&](int all_idx) -> const Eigen::Vector3d & { return vertices[all_idx].pos; };
-
-				// create children
-				elements[id_full].children(0) = elements.size();
-				add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
-				elements[id_full].children(1) = elements.size();
-				add_element(Eigen::Vector4i(v5, v2, v8, v9), id_full);
-				elements[id_full].children(2) = elements.size();
-				add_element(Eigen::Vector4i(v6, v8, v3, v10), id_full);
-				elements[id_full].children(3) = elements.size();
-				add_element(Eigen::Vector4i(v7, v9, v10, v4), id_full);
-
+				bool diag_choose = false;
+					auto point_of = [&](int all_idx) -> const Eigen::Vector3d & { return vertices[all_idx].pos; };
 				const double d_v6_v9 = (point_of(v6) - point_of(v9)).norm();
 				const double d_v5_v10 = (point_of(v5) - point_of(v10)).norm();
 				const double d_v7_v8 = (point_of(v7) - point_of(v8)).norm();
 
-				if (d_v6_v9 <= d_v5_v10 && d_v6_v9 <= d_v7_v8)
+				std::cout << "refine_element " << id_full
+		 << " diag_choose=" << diag_choose
+		 << " d69=" << d_v6_v9 << " d5_10=" << d_v5_v10 << " d78=" << d_v7_v8 << std::endl;
+
+				if (diag_choose)
 				{
-					// diagonal v6-v9 (PolyFEM's original fixed choice)
+					elements[id_full].children(0) = elements.size();
+					add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
+					elements[id_full].children(1) = elements.size();
+					add_element(Eigen::Vector4i(v5, v2, v8, v9), id_full);
+					elements[id_full].children(2) = elements.size();
+					add_element(Eigen::Vector4i(v6, v8, v3, v10), id_full);
+					elements[id_full].children(3) = elements.size();
+					add_element(Eigen::Vector4i(v7, v9, v10, v4), id_full);
 					elements[id_full].children(4) = elements.size();
 					add_element(Eigen::Vector4i(v5, v6, v7, v9), id_full);
 					elements[id_full].children(5) = elements.size();
@@ -729,31 +712,57 @@ namespace polyfem
 					elements[id_full].children(7) = elements.size();
 					add_element(Eigen::Vector4i(v6, v10, v9, v8), id_full);
 				}
-				else if (d_v5_v10 <= d_v7_v8)
-				{
-					// diagonal v5-v10
-					elements[id_full].children(4) = elements.size();
-					add_element(Eigen::Vector4i(v5, v6, v7, v10), id_full);
-					elements[id_full].children(5) = elements.size();
-					add_element(Eigen::Vector4i(v5, v7, v9, v10), id_full);
-					elements[id_full].children(6) = elements.size();
-					add_element(Eigen::Vector4i(v5, v9, v8, v10), id_full);
-					elements[id_full].children(7) = elements.size();
-					add_element(Eigen::Vector4i(v5, v8, v6, v10), id_full);
-				}
 				else
 				{
-					// diagonal v7-v8
-					elements[id_full].children(4) = elements.size();
-					add_element(Eigen::Vector4i(v7, v5, v6, v8), id_full);
-					elements[id_full].children(5) = elements.size();
-					add_element(Eigen::Vector4i(v7, v6, v10, v8), id_full);
-					elements[id_full].children(6) = elements.size();
-					add_element(Eigen::Vector4i(v7, v10, v9, v8), id_full);
-					elements[id_full].children(7) = elements.size();
-					add_element(Eigen::Vector4i(v7, v9, v5, v8), id_full);
+
+					// create children
+					elements[id_full].children(0) = elements.size();
+					add_element(Eigen::Vector4i(v1, v5, v6, v7), id_full);
+					elements[id_full].children(1) = elements.size();
+					add_element(Eigen::Vector4i(v5, v2, v8, v9), id_full);
+					elements[id_full].children(2) = elements.size();
+					add_element(Eigen::Vector4i(v6, v8, v3, v10), id_full);
+					elements[id_full].children(3) = elements.size();
+					add_element(Eigen::Vector4i(v7, v9, v10, v4), id_full);
+
+
+					if (d_v6_v9 <= d_v5_v10 && d_v6_v9 <= d_v7_v8)
+					{
+						// diagonal v6-v9 (PolyFEM's original fixed choice)
+						elements[id_full].children(4) = elements.size();
+						add_element(Eigen::Vector4i(v5, v6, v7, v9), id_full);
+						elements[id_full].children(5) = elements.size();
+						add_element(Eigen::Vector4i(v5, v9, v8, v6), id_full);
+						elements[id_full].children(6) = elements.size();
+						add_element(Eigen::Vector4i(v6, v7, v9, v10), id_full);
+						elements[id_full].children(7) = elements.size();
+						add_element(Eigen::Vector4i(v6, v10, v9, v8), id_full);
+					}
+					else if (d_v5_v10 <= d_v7_v8)
+					{
+						// diagonal v5-v10
+						elements[id_full].children(4) = elements.size();
+						add_element(Eigen::Vector4i(v5, v6, v7, v10), id_full);
+						elements[id_full].children(5) = elements.size();
+						add_element(Eigen::Vector4i(v5, v7, v9, v10), id_full);
+						elements[id_full].children(6) = elements.size();
+						add_element(Eigen::Vector4i(v5, v9, v8, v10), id_full);
+						elements[id_full].children(7) = elements.size();
+						add_element(Eigen::Vector4i(v5, v8, v6, v10), id_full);
+					}
+					else
+					{
+						// diagonal v7-v8
+						elements[id_full].children(4) = elements.size();
+						add_element(Eigen::Vector4i(v7, v5, v6, v8), id_full);
+						elements[id_full].children(5) = elements.size();
+						add_element(Eigen::Vector4i(v7, v6, v10, v8), id_full);
+						elements[id_full].children(6) = elements.size();
+						add_element(Eigen::Vector4i(v7, v10, v9, v8), id_full);
+						elements[id_full].children(7) = elements.size();
+						add_element(Eigen::Vector4i(v7, v9, v5, v8), id_full);
+					}
 				}
-*/
 
 
 			}
@@ -933,6 +942,14 @@ namespace polyfem
 		std::unique_ptr<Mesh> NCMesh3D::copy() const
 		{
 			return std::make_unique<NCMesh3D>(*this);
+		}
+
+		RefinementMap NCMesh3D::refinement_map_to(const Mesh &fine) const
+		{
+			const auto *fine_nc = dynamic_cast<const NCMesh3D *>(&fine);
+			if (!fine_nc)
+				throw std::runtime_error("NCMesh3D::refinement_map_to: the fine mesh must also be an NCMesh3D.");
+			return detail::build_nc_refinement_map(*this, *fine_nc);
 		}
 
 		int NCMesh3D::find_vertex(Eigen::Vector2i v) const
