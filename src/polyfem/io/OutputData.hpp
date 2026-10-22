@@ -87,5 +87,7 @@ namespace polyfem::io
 		const std::vector<RowVectorNd> *dirichlet_nodes_position = nullptr;
 		/// Node numbering of the field space (node id = DOF id), when the formulation has one
 		const mesh::MeshNodes *mesh_nodes = nullptr;
+		/// Field (solution) bases, when the formulation has them; geometry_bases may differ (non-isoparametric)
+		const std::vector<basis::ElementBases> *bases = nullptr;
 	};
 } // namespace polyfem::io

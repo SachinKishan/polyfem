@@ -408,7 +408,8 @@ namespace polyfem::varform
 			nullptr,
 			&boundary_.dirichlet_nodes,
 			&boundary_.dirichlet_nodes_position,
-			space_.mesh_nodes.get()};
+			space_.mesh_nodes.get(),
+			&space_.basis_list()};
 	}
 
 	io::OutStatsData ScalarVarForm::compute_errors(const Eigen::MatrixXd &solution)
