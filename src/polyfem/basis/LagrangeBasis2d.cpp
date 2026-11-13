@@ -9,6 +9,9 @@
 #include <polyfem/assembler/AssemblerUtils.hpp>
 
 #include <polyfem/utils/MaybeParallelFor.hpp>
+#include <polyfem/utils/Logger.hpp>
+
+#include <chrono>
 
 #include <cassert>
 #include <array>
@@ -20,6 +23,15 @@ using namespace polyfem::basis;
 using namespace polyfem::mesh;
 using namespace polyfem::quadrature;
 using namespace polyfem::utils;
+
+// [basis-timer] temporary instrumentation for NC basis build profiling
+namespace
+{
+	using BTClock = std::chrono::steady_clock;
+	inline double bt_since(const BTClock::time_point &t0) { return std::chrono::duration<double>(BTClock::now() - t0).count(); }
+	double bt_local_to_global = 0; // whole tri/quad_local_to_global
+	double bt_boundary = 0;       // local boundary detection in compute_nodes
+} // namespace
 
 /*
 
@@ -452,7 +464,10 @@ namespace
 			}
 			else if (mesh.is_simplex(f))
 			{
+				auto bt_t0 = BTClock::now();
 				tri_local_to_global(is_geom_bases, discr_order, mesh, f, discr_orders, edge_orders, element_nodes_id[f], nodes, edge_virtual_nodes);
+				bt_local_to_global += bt_since(bt_t0);
+				bt_t0 = BTClock::now();
 
 				auto v = tri_vertices_local_to_global(mesh, f);
 
@@ -476,6 +491,7 @@ namespace
 
 				if (!lb.empty())
 					local_boundary.emplace_back(lb);
+				bt_boundary += bt_since(bt_t0);
 			}
 		}
 
@@ -712,17 +728,34 @@ int LagrangeBasis2d::build_bases(
 	const int nn = max_p > 1 ? (max_p - 1) : 0;
 	const int n_face_nodes = std::max(nn * nn, max_p == 1 ? 1 : 0);
 
+	const auto bt_total = BTClock::now();
+	auto bt_t0 = BTClock::now();
+	bt_local_to_global = bt_boundary = 0;
+	double bt_n_edges_one_call = 0;
+	{
+		const auto t = BTClock::now();
+		volatile int ne = mesh.n_edges() + mesh.n_vertices();
+		(void)ne;
+		bt_n_edges_one_call = bt_since(t);
+	}
+
 	Eigen::VectorXi edge_orders;
 	if (!mesh.is_conforming())
 	{
 		const auto &ncmesh = dynamic_cast<const NCMesh2D &>(mesh);
 		compute_edge_orders(ncmesh, discr_orders, edge_orders);
 	}
+	const double bt_edge_orders = bt_since(bt_t0);
+	bt_t0 = BTClock::now();
 
 	mesh_nodes = std::make_shared<MeshNodes>(mesh, has_polys, !is_geom_bases, (max_p > 1 ? (max_p - 1) : 0) * (is_geom_bases ? 2 : 1), max_p == 0 ? 1 : n_face_nodes);
 	MeshNodes &nodes = *mesh_nodes;
+	const double bt_mesh_nodes = bt_since(bt_t0);
+	bt_t0 = BTClock::now();
 	std::vector<std::vector<int>> element_nodes_id, edge_virtual_nodes;
 	compute_nodes(mesh, discr_orders, edge_orders, serendipity, has_polys, is_geom_bases, nodes, edge_virtual_nodes, element_nodes_id, local_boundary, poly_edge_to_data);
+	const double bt_compute_nodes = bt_since(bt_t0);
+	bt_t0 = BTClock::now();
 	// boundary_nodes = nodes.boundary_nodes();
 
 	bases.resize(mesh.n_faces());
@@ -917,6 +950,8 @@ int LagrangeBasis2d::build_bases(
 		}
 #endif
 	}
+	const double bt_element_loop = bt_since(bt_t0);
+	bt_t0 = BTClock::now();
 
 	if (!is_geom_bases)
 	{
@@ -1220,6 +1255,12 @@ int LagrangeBasis2d::build_bases(
 			}
 		}
 	}
+	const double bt_constraints = bt_since(bt_t0);
+
+	logger().info("[basis-timer] 2D {} geom={} n_faces={} n_edges={} n_vertices={} | one n_edges()+n_vertices() call {:.3e}s",
+				  mesh.is_conforming() ? "conforming" : "NC", is_geom_bases, mesh.n_faces(), mesh.n_edges(), mesh.n_vertices(), bt_n_edges_one_call);
+	logger().info("[basis-timer]   edge_orders {:.4f}s | MeshNodes ctor {:.4f}s | compute_nodes {:.4f}s (local_to_global {:.4f}s; boundary {:.4f}s) | element loop {:.4f}s | NC/interface constraints {:.4f}s | total {:.4f}s",
+				  bt_edge_orders, bt_mesh_nodes, bt_compute_nodes, bt_local_to_global, bt_boundary, bt_element_loop, bt_constraints, bt_since(bt_total));
 
 	return nodes.n_nodes();
 }

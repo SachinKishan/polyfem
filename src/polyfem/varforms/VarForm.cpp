@@ -348,6 +348,8 @@ namespace polyfem::varform
 		std::map<int, basis::InterfaceData> poly_edge_to_data_geom;
 
 		const bool use_continuous_gbasis = true;
+		igl::Timer bt_timer; // [basis-timer]
+		bt_timer.start();
 
 		if (mesh.is_volume())
 		{
@@ -408,6 +410,8 @@ namespace polyfem::varform
 			}
 		}
 
+		const double bt_build_bases = bt_timer.getElapsedTime();
+		bt_timer.start();
 		const bool use_fe_space_as_geometry = build_geom_mapping ? iso_parametric : space.is_iso_parametric();
 		build_polygonal_basis(mesh, poly_basis_type, space_assembler,
 							  use_fe_space_as_geometry,
@@ -418,6 +422,8 @@ namespace polyfem::varform
 							  space,
 							  boundary);
 
+		const double bt_poly = bt_timer.getElapsedTime();
+		bt_timer.start();
 		if (build_geom_mapping)
 		{
 			if (iso_parametric)
@@ -432,6 +438,8 @@ namespace polyfem::varform
 		boundary.total_local_boundary.clear();
 		for (const auto &lb : boundary.local_boundary)
 			boundary.total_local_boundary.emplace_back(lb);
+		const double bt_geom_init = bt_timer.getElapsedTime();
+		bt_timer.start();
 
 		if (build_geom_mapping)
 		{
@@ -442,6 +450,10 @@ namespace polyfem::varform
 			timer2.stop();
 			logger().debug("Done (took {}s)", timer2.getElapsedTime());
 		}
+
+		const double bt_node_mapping = bt_timer.getElapsedTime();
+		logger().info("[basis-timer] VarForm::build_basis: build_bases {:.4f}s | polygonal {:.4f}s | geometry init + local boundary {:.4f}s | build_node_mapping {:.4f}s | total {:.4f}s",
+					  bt_build_bases, bt_poly, bt_geom_init, bt_node_mapping, timer.getElapsedTime());
 
 		logger().info("n_bases {}", space.n_bases);
 

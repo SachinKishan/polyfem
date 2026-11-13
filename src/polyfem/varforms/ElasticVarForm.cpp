@@ -1168,7 +1168,9 @@ namespace polyfem::varform
 			nullptr,
 			nullptr,
 			&boundary_.dirichlet_nodes,
-			&boundary_.dirichlet_nodes_position};
+			&boundary_.dirichlet_nodes_position,
+			space_.mesh_nodes.get(),
+			&space_.basis_list()};
 	}
 
 	io::OutStatsData ElasticVarForm::compute_errors(const Eigen::MatrixXd &solution)
@@ -1176,12 +1178,23 @@ namespace polyfem::varform
 		if (!args["output"]["advanced"]["compute_error"])
 			return stats;
 
-		double tend = 0;
+		// static problems are solved at t = 1 (as in ScalarVarForm), so compare against the exact solution there
+		double tend = 1;
 		if (!args["time"].is_null())
 			tend = args["time"]["tend"];
 
 		stats.compute_errors(space_.n_bases, space_.basis_list(), space_.geometry_basis_list(), *mesh_, *problem, tend, solution);
 		return stats;
+	}
+
+	Eigen::VectorXd ElasticVarForm::compute_element_errors(const Eigen::MatrixXd &solution)
+	{
+		// static problems are solved at t = 1 (as in ScalarVarForm), so compare against the exact solution there
+		double tend = 1;
+		if (!args["time"].is_null())
+			tend = args["time"]["tend"];
+
+		return stats.compute_element_errors(space_.basis_list(), space_.geometry_basis_list(), *mesh_, *problem, tend, solution);
 	}
 
 	void ElasticVarForm::export_data(const Eigen::MatrixXd &solution) const

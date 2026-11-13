@@ -27,6 +27,18 @@
 
 #include <paraviewo/VTUWriter.hpp>
 
+#include <cfenv>
+
+// hypre built with HYPRE_ENABLE_FPE_TRAP (kirby's Debug build) turns on floating-point traps on Linux
+// when it initialises. Harmless NaN checks later on (e.g. the units library while materials are
+// reloaded after refinement) then kill the program with SIGFPE. Called after every solve.
+inline void disable_fp_traps()
+{
+#if defined(__linux__)
+	fedisableexcept(FE_ALL_EXCEPT);
+#endif
+}
+
 using namespace polyfem;
 namespace fs = std::filesystem;
 
@@ -34,31 +46,20 @@ namespace fs = std::filesystem;
 // Settings shared by all tests
 // ======================================================================
 
-// Region used by the non-uniform refinement: elements on the negative side of the
-// plane  x[axis] = position  get refined.
-//   use_barycenter = true  -> an element is refined if its barycenter is below the plane
-//   use_barycenter = false -> an element is refined if ANY of its vertices is below the plane
+// Non-uniform refinement refines elements below x[axis] = position
 struct Plane
 {
 	int axis = 0;
 	double position = 0.5;
-	bool use_barycenter = true;
-};
-
-struct Options
-{
-	int base_refs = 1;          // uniform splits applied to the input mesh before anything else
-	int nonuniform_passes = 1;  // convergence tests only: non-uniform passes applied before the uniform levels
-	Plane plane;                // region for non-uniform refinement
-	bool dump_meshes = true;    // write .vtu mesh dumps
+	bool use_barycenter = true; // false: any vertex below the plane counts
 };
 
 struct Result
 {
 	int level;
-	double h;   // max edge length (OutStatsData::mesh_size)
-	double l2;  // expected O(h^{p+1})
-	double h1s; // expected O(h^p)
+	double h;
+	double l2;
+	double h1s;
 };
 
 enum class Method
@@ -86,7 +87,6 @@ inline std::string method_name(const Method m)
 // Output helpers
 // ======================================================================
 
-// <working_dir>/<mesh file name without extension>/
 inline fs::path mesh_output_dir(const std::string &working_dir, const std::string &mesh_path)
 {
 	const fs::path dir = fs::path(working_dir) / fs::path(mesh_path).stem();
@@ -94,7 +94,6 @@ inline fs::path mesh_output_dir(const std::string &working_dir, const std::strin
 	return dir;
 }
 
-// Sends PolyFEM's own outputs (paraview solutions, ...) into <dir>/solutions.
 inline json route_outputs(json args, const fs::path &dir, const std::string &tag)
 {
 	const fs::path sol_dir = dir / "solutions";
@@ -104,13 +103,12 @@ inline json route_outputs(json args, const fs::path &dir, const std::string &tag
 	return args;
 }
 
-// geometry can be a single object or an array of objects
 inline json &first_geometry(json &args)
 {
 	return args["geometry"].is_array() ? args["geometry"][0] : args["geometry"];
 }
 
-// Works for any triangle / tet mesh (conforming or non-conforming). Must be prepared first.
+// The mesh must be prepared.
 inline void dump_mesh_vtu(const mesh::Mesh &m, const fs::path &path)
 {
 	fs::create_directories(path.parent_path());
@@ -143,7 +141,7 @@ inline void dump_mesh_vtu(const mesh::Mesh *m, const fs::path &path)
 // Non-conforming mesh loading / refinement
 // ======================================================================
 
-inline std::unique_ptr<mesh::Mesh> load_nc_mesh(State &state, json args)
+inline std::unique_ptr<mesh::Mesh> load_fem_mesh(State &state, json args, const bool non_conforming)
 {
 	using Clk = std::chrono::steady_clock;
 	const auto secs = [](const Clk::time_point a, const Clk::time_point b) { return std::chrono::duration<double>(b - a).count(); };
@@ -155,24 +153,27 @@ inline std::unique_ptr<mesh::Mesh> load_nc_mesh(State &state, json args)
 	state.init(args, /*strict_validation=*/true);
 	const auto t1 = Clk::now();
 	// pushes the validated args into the varform; the mesh it loads is replaced by the one below
-	state.load_mesh(/*non_conforming=*/true);
+	state.load_mesh(non_conforming);
 	const auto t2 = Clk::now();
 
 	Units units;
 	units.init(state.args["units"]);
 	const io::FileSystemIO resources(root);
 	auto mesh = mesh::GeometryLoader(units, resources)
-					.load_fem(state.args["geometry"], /*non_conforming=*/true);
+					.load_fem(state.args["geometry"], non_conforming);
 	const auto t3 = Clk::now();
 
-	std::cout << "load_nc_mesh: init " << secs(t0, t1) << " s, load_mesh " << secs(t1, t2)
+	std::cout << (non_conforming ? "load_nc_mesh" : "load_conforming_mesh") << ": init " << secs(t0, t1) << " s, load_mesh " << secs(t1, t2)
 			  << " s, load_fem " << secs(t2, t3) << " s" << std::endl;
 	return mesh;
 }
 
-// Calls f(nc) with the concrete NCMesh2D or NCMesh3D. Inside f, query the mesh through a
-// mesh::Mesh reference: NCMesh2D/3D have a protected member called n_elements that hides
-// Mesh::n_elements().
+inline std::unique_ptr<mesh::Mesh> load_nc_mesh(State &state, json args)
+{
+	return load_fem_mesh(state, std::move(args), /*non_conforming=*/true);
+}
+
+// Inside f, query the mesh through a mesh::Mesh reference: NCMesh2D/3D hide Mesh::n_elements().
 template <class F>
 void visit_nc_mesh(mesh::Mesh &m, F &&f)
 {
@@ -184,7 +185,6 @@ void visit_nc_mesh(mesh::Mesh &m, F &&f)
 		log_and_throw_error("Expected an NCMesh2D or NCMesh3D.");
 }
 
-// Refines every element on the negative side of the plane, then rebuilds the index maps.
 template <class NC>
 void refine_below_plane(NC &nc, const Plane &plane)
 {
@@ -220,7 +220,6 @@ void refine_below_plane(NC &nc, const Plane &plane)
 // Input args
 // ======================================================================
 
-// Franke / Laplacian problem on any mesh file
 inline json make_args(const std::string &mesh_path)
 {
 	json args = R"json({
@@ -283,8 +282,7 @@ inline json make_args(const std::string &mesh_path)
 	return franke_args;
 }
 
-// Reads a PolyFEM args file. Like PolyFEM's own main, it sets root_path to the file when the
-// json does not, so relative paths inside it (the mesh, "common", ...) resolve against the file.
+// root_path defaults to the file, so relative paths inside it resolve against it
 inline json load_args(const std::string &json_file)
 {
 	std::ifstream file(json_file);
@@ -306,24 +304,27 @@ inline json load_args(const std::string &json_file)
 	return args;
 }
 
-// ======================================================================
-// Marking
-// ======================================================================
-
-// Doerfler (bulk) marking: smallest set of elements whose eta^2 sums to >= theta * total.
-inline std::vector<int> mark_bulk(const Eigen::VectorXd &eta2, const double theta)
+// exact_presets: the classes with has_exact_sol() in src/polyfem/problem
+inline bool has_reference(const json &args)
 {
-	std::vector<int> idx(eta2.size());
-	std::iota(idx.begin(), idx.end(), 0);
-	std::sort(idx.begin(), idx.end(), [&](int a, int b) { return eta2(a) > eta2(b); });
-	const double target = theta * eta2.sum();
-	double acc = 0;
-	std::vector<int> marked;
-	for (int i : idx)
+	static const std::vector<std::string> exact_presets = {
+		"Linear", "Quadratic", "Cubic", "Sine", "Franke", "FrankeOld",
+		"ElasticExact", "ElasticCantileverExact", "CompressionElasticExact",
+		"QuadraticElasticExact", "LinearElasticExact"};
+	if (args.contains("preset_problem") && args["preset_problem"].contains("type"))
 	{
-		marked.push_back(i);
-		if ((acc += eta2(i)) >= target)
-			break;
+		const std::string type = args["preset_problem"]["type"];
+		if (std::find(exact_presets.begin(), exact_presets.end(), type) != exact_presets.end())
+			return true;
 	}
-	return marked;
+
+	if (!args.contains("output") || !args["output"].contains("reference"))
+		return false;
+	const json &ref = args["output"]["reference"];
+	if (!ref.contains("solution") || ref["solution"].is_null())
+		return false;
+	const json &sol = ref["solution"];
+	if (sol.is_string())
+		return !sol.get<std::string>().empty();
+	return sol.is_array() && !sol.empty();
 }

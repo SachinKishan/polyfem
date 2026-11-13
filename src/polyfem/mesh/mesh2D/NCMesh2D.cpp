@@ -422,12 +422,9 @@ namespace polyfem
 		double line_weight(Eigen::Matrix<double, 2, 2> &e, Eigen::VectorXd &v)
 		{
 			assert(v.size() == 2);
-			double w1 = (v(0) - e(0, 0)) / (e(1, 0) - e(0, 0));
-			double w2 = (v(1) - e(0, 1)) / (e(1, 1) - e(0, 1));
-			if (0 <= w1 && w1 <= 1)
-				return w1;
-			else
-				return w2;
+			// parametrize along the axis the edge spans the most, so axis-aligned edges never divide by zero
+			const int axis = std::abs(e(1, 0) - e(0, 0)) >= std::abs(e(1, 1) - e(0, 1)) ? 0 : 1;
+			return (v(axis) - e(0, axis)) / (e(1, axis) - e(0, axis));
 		}
 
 		void NCMesh2D::build_element_vertex_adjacency()

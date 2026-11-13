@@ -147,7 +147,6 @@ inline double tet_shape_ratio(const Eigen::Vector3d p[4])
 	return h / (2.0 * rho); // h_T / rho_T, rho_T = diameter of inscribed sphere
 }
 
-// Max sigma_T over all elements, triangle (2D) or tet (3D).
 inline double max_shape_ratio(const mesh::Mesh &mesh)
 {
 	const int dim = mesh.dimension();
@@ -172,9 +171,6 @@ inline double max_shape_ratio(const mesh::Mesh &mesh)
 // Refinement sequence
 // ======================================================================
 
-// Loads the NC mesh, applies opt.base_refs, then calls on_iteration(mesh, 0).
-// For each iteration 1..iterations it refines once (uniformly, or only below the plane)
-// and calls on_iteration(mesh, i). The mesh is always prepared when the callback runs.
 inline void refinement_sequence(const fs::path &dir, const std::string &tag, const json &args,
 								const bool nonuniform, const int iterations, const Options &opt,
 								const std::function<void(const mesh::Mesh &, int)> &on_iteration)
@@ -279,7 +275,6 @@ inline Result solve_conforming(const fs::path &dir, json args, const int p, cons
 	return {level, stats.mesh_size, stats.l2_err, stats.h1_semi_err};
 }
 
-// base_refs -> (non-uniform passes) -> `level` uniform refinements -> solve
 inline Result solve_nc(const fs::path &dir, json args, const int p, const int level,
 					   const bool nonuniform, const Options &opt)
 {
@@ -321,7 +316,6 @@ inline double rate(const double e_prev, const double e, const double h_prev, con
 }
 
 // Least-squares slope of log(err) vs log(h) over all points (the convergence order).
-// Returns NaN if fewer than 2 usable points.
 inline double fit_slope(const std::vector<Result> &rs, const bool use_l2)
 {
 	std::vector<double> x, y;
@@ -402,7 +396,6 @@ inline void write_convergence_csv(const fs::path &path, const std::vector<Result
 	}
 }
 
-// Runs levels 0..max_level and writes convergence_<method>_p<p>.txt / .csv
 inline std::vector<Result> convergence_test(const fs::path &dir, const json &args, const Method method,
 											const int p, const int max_level, const Options &opt)
 {
@@ -437,7 +430,6 @@ inline std::vector<Result> convergence_test(const fs::path &dir, const json &arg
 // Plotting
 // ======================================================================
 
-// Runs plot_results.py on the mesh folder; it writes the PNGs into that same folder.
 inline void make_plots(const std::string &plot_script, const fs::path &dir)
 {
 	if (!fs::exists(plot_script))
