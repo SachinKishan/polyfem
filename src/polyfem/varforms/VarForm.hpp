@@ -47,6 +47,8 @@ namespace polyfem
 			Eigen::MatrixXd solution;
 			Eigen::MatrixXd velocity;
 			Eigen::MatrixXd acceleration;
+			/// Macro G for decomposing solution as u = fluctuation + G X; empty when absent.
+			Eigen::MatrixXd displacement_gradient;
 		};
 
 		// Called after each completed forward-simulation step.
@@ -86,6 +88,9 @@ namespace polyfem
 				const std::string &out_path);
 
 			void set_checkpoint_reader(const io::CheckpointReader &reader) { checkpoint_reader_ = std::cref(reader); }
+
+			/// Check time configuration after the derived formulation initializes its problem.
+			void validate_time_dependence() const;
 
 			/// @brief Set the mesh for the variational formulation
 			/// @param mesh unique pointer to the mesh to use for the formulation

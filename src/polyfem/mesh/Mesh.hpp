@@ -9,7 +9,6 @@
 #include <polyfem/utils/Types.hpp>
 
 #include <Eigen/Dense>
-#include <geogram/mesh/mesh.h>
 
 #include <memory>
 #include <stdexcept>
