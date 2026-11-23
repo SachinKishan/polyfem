@@ -1,0 +1,107 @@
+diff -ru a/linear-solver-spec.json b/linear-solver-spec.json
+--- a/linear-solver-spec.json
++++ b/linear-solver-spec.json
+@@ -40,6 +40,7 @@
+             "Eigen::UmfPackLU",
+             "Eigen::SuperLU",
+             "Eigen::PardisoLDLT",
++            "Eigen::PardisoLDLT64",
+             "Eigen::PardisoLLT",
+             "Eigen::PardisoLU",
+             "Pardiso",
+diff -ru a/src/polysolve/linear/EigenSolver.tpp b/src/polysolve/linear/EigenSolver.tpp
+--- a/src/polysolve/linear/EigenSolver.tpp	2026-11-15 16:53:11
++++ b/src/polysolve/linear/EigenSolver.tpp	2026-11-15 16:54:18
+@@ -10,6 +10,33 @@
+ ////////////////////////////////////////////////////////////////////////////////
+ namespace polysolve::linear
+ {
++    namespace detail
++    {
++        // The matrix the Eigen solver works on: A itself, or a copy with the solver's own index type
++        // (Eigen::PardisoLDLT64 uses long long indices so Eigen calls MKL's 64-bit pardiso_64).
++        template <typename SparseSolver>
++        decltype(auto) as_solver_matrix(const StiffnessMatrix &A)
++        {
++            using SolverMatrix = typename SparseSolver::MatrixType;
++            if constexpr (std::is_same_v<SolverMatrix, StiffnessMatrix>)
++                return (A);
++            else
++                return SolverMatrix(A);
++        }
++
++        inline const char *info_name(const Eigen::ComputationInfo info)
++        {
++            switch (info)
++            {
++            case Eigen::Success: return "Success";
++            case Eigen::NumericalIssue: return "NumericalIssue";
++            case Eigen::NoConvergence: return "NoConvergence";
++            case Eigen::InvalidInput: return "InvalidInput (for Pardiso: any MKL error other than a zero pivot, e.g. out of memory or integer overflow)";
++            default: return "unknown";
++            }
++        }
++    } // namespace detail
++
+     // Get info on the last solve step
+     template <typename SparseSolver>
+     void EigenDirect<SparseSolver>::get_info(json &params) const
+@@ -37,17 +64,19 @@
+     template <typename SparseSolver>
+     void EigenDirect<SparseSolver>::analyze_pattern(const StiffnessMatrix &A, const int precond_num)
+     {
+-        m_Solver.analyzePattern(A);
++        m_Solver.analyzePattern(detail::as_solver_matrix<SparseSolver>(A));
+     }
+ 
+     // Factorize system matrix
+     template <typename SparseSolver>
+     void EigenDirect<SparseSolver>::factorize(const StiffnessMatrix &A)
+     {
+-        m_Solver.factorize(A);
+-        if (m_Solver.info() == Eigen::NumericalIssue)
++        m_Solver.factorize(detail::as_solver_matrix<SparseSolver>(A));
++        // any failure, not only NumericalIssue: e.g. Pardiso running out of memory or overflowing its
++        // 32-bit indices reports InvalidInput, and used to go unnoticed (the solve then returned garbage)
++        if (m_Solver.info() != Eigen::Success)
+         {
+-            throw std::runtime_error("[EigenDirect] NumericalIssue encountered.");
++            throw std::runtime_error("[EigenDirect] " + m_Name + ": factorization failed: " + detail::info_name(m_Solver.info()));
+         }
+     }
+ 
+@@ -57,6 +86,10 @@
+         const Ref<const VectorXd> b, Ref<VectorXd> x)
+     {
+         x = m_Solver.solve(b);
++        if (m_Solver.info() != Eigen::Success)
++        {
++            throw std::runtime_error("[EigenDirect] " + m_Name + ": solve failed: " + detail::info_name(m_Solver.info()));
++        }
+     }
+ 
+     ////////////////////////////////////////////////////////////////////////////////
+diff -ru a/src/polysolve/linear/Solver.cpp b/src/polysolve/linear/Solver.cpp
+--- a/src/polysolve/linear/Solver.cpp
++++ b/src/polysolve/linear/Solver.cpp
+@@ -392,6 +392,12 @@
+         {
+             RETURN_DIRECT_SOLVER_PTR(PardisoLDLT, "Eigen::PardisoLDLT");
+         }
++        else if (solver == "Eigen::PardisoLDLT64")
++        {
++            // same as Eigen::PardisoLDLT, on a copy of the matrix with long long indices, so Eigen calls
++            // MKL's pardiso_64: factors with more than 2^31 nonzeros (very large systems) work
++            return std::make_unique<EigenDirect<Eigen::PardisoLDLT<Eigen::SparseMatrix<double, Eigen::ColMajor, long long>>>>("Eigen::PardisoLDLT64");
++        }
+         else if (solver == "Eigen::PardisoLU")
+         {
+             RETURN_DIRECT_SOLVER_PTR(PardisoLU, "Eigen::PardisoLU");
+@@ -563,6 +569,7 @@
+ #ifndef POLYSOLVE_LARGE_INDEX
+             "Eigen::PardisoLLT",
+             "Eigen::PardisoLDLT",
++            "Eigen::PardisoLDLT64",
+             "Eigen::PardisoLU",
+ #endif
+ #endif

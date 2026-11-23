@@ -735,6 +735,18 @@ namespace polyfem::varform
 		assert(rhs_assembler_ != nullptr);
 
 		Eigen::VectorXd x;
+		if (initial_guess_fn)
+		{
+			x = initial_guess_fn();
+			if (x.size() != A.rows())
+			{
+				logger().warn("initial guess has {} values, system has {}; starting from zero", x.size(), A.rows());
+				x.resize(0);
+			}
+			else
+				for (const int n : boundary_.boundary_nodes)
+					x(n) = b(n); // dirichlet_solve turns these rows into x(n) = b(n)
+		}
 		stats.spectrum = dirichlet_solve(
 			*solver,
 			A,

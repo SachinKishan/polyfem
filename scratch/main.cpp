@@ -45,6 +45,8 @@ struct Options
 	EstimatorNorm mark_norm = EstimatorNorm::H1Semi;
 	EstimatorNorm stop_norm = EstimatorNorm::H1Semi; // the error the stopping test, csvs and plots use
 	MarkScheme mark_scheme = MarkScheme::ErrorPercentage;
+	json fine_linear_solver; // --fine-solver: solver.linear for the estimator's fine solve only (null: same as the coarse solve)
+	bool fine_warm_start = false; // --fine-warm-start: coarse solution, copied to the fine mesh, as the fine solve's initial guess
 	bool use_exact_error = false; // false: stopping and the csv use the estimator even when an exact solution exists
 	bool reuse_finished_runs = true;
 	bool dump_meshes = true;

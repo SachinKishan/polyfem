@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <polyfem/varforms/VarForm.hpp>
 
 #include <polyfem/assembler/Mass.hpp>
@@ -30,6 +32,10 @@ namespace polyfem::varform
 		void serialize_checkpoint(io::CheckpointWriter &writer, const Eigen::MatrixXd &solution, const io::CheckpointMetadata &metadata) const override;
 		void deserialize_checkpoint(const io::CheckpointReader &reader, Eigen::MatrixXd &solution) override;
 		Eigen::VectorXd compute_element_errors(const Eigen::MatrixXd &solution) override;
+
+		// Optional initial guess for the static linear solve (used by iterative solvers, ignored by direct ones).
+		// Called once the bases exist; must return n_bases values, or an empty vector to start from zero.
+		std::function<Eigen::VectorXd()> initial_guess_fn;
 
 		std::vector<io::OutputField> output_fields(
 			const io::OutputSample &sample,

@@ -2,8 +2,11 @@
 
 #include "common.h"
 
+#include <chrono>
+
 #include <polyfem/assembler/ElementAssemblyValues.hpp>
 #include <polyfem/io/Evaluator.hpp>
+#include <polyfem/varforms/ScalarVarForm.hpp>
 #include <polyfem/mesh/NodeCorrespondence.hpp>
 
 // Needs polyfem_refinement_map.patch: Mesh::refinement_map_to, mesh::node_correspondence, OutputSpace::mesh_nodes.
@@ -48,6 +51,7 @@ struct FineSolver
 {
 	State state;
 	bool ready = false;
+	bool warm_start = false; // start the fine solve from the coarse solution (scalar problems)
 };
 
 inline Eigen::VectorXd error_estimation_simple(State &coarse_state, const Eigen::MatrixXd &coarse_sol, const json &args, FineSolver &fine)
@@ -134,6 +138,62 @@ inline int n_field_bases(const std::vector<basis::ElementBases> &bases)
 	return n;
 }
 
+// Coarse solution written in the fine (once uniformly refined) space: the fine space contains the coarse one,
+// so evaluating the coarse solution at each fine node is exact. Scalar problems, affine simplices.
+inline Eigen::VectorXd prolong_to_fine(const io::OutputSpace &cs, const Eigen::MatrixXd &coarse_sol, const io::OutputSpace &fs)
+{
+	const mesh::Mesh &cm = *cs.mesh;
+	const mesh::Mesh &fm = *fs.mesh;
+	const mesh::RefinementMap map = cm.refinement_map_to(fm);
+	const int dim = cm.dimension();
+	const int n = n_field_bases(*fs.bases);
+	Eigen::VectorXd x = Eigen::VectorXd::Zero(n);
+	std::vector<char> done(n, 0);
+
+	Eigen::MatrixXd ref_corners = Eigen::MatrixXd::Zero(dim + 1, dim);
+	for (int i = 0; i < dim; ++i)
+		ref_corners(i + 1, i) = 1;
+	Eigen::MatrixXd corners, val, grad;
+	for (int K = 0; K < cm.n_elements(); ++K)
+	{
+		(*cs.geometry_bases)[K].eval_geom_mapping(ref_corners, corners);
+		const Eigen::RowVectorXd x0 = corners.row(0);
+		Eigen::MatrixXd J(dim, dim);
+		for (int i = 0; i < dim; ++i)
+			J.col(i) = (corners.row(i + 1) - x0).transpose();
+		const Eigen::PartialPivLU<Eigen::MatrixXd> J_lu(J);
+
+		for (const int f : map.children[K])
+		{
+			std::vector<int> idx;
+			std::vector<Eigen::RowVectorXd> pts;
+			for (const auto &b : (*fs.bases)[f].bases)
+			{
+				const auto &g = b.global();
+				if (g.size() != 1 || std::abs(g[0].val - 1) > 1e-12 || done[g[0].index])
+					continue; // hanging (constrained) nodes have several entries; their owners set them
+				idx.push_back(g[0].index);
+				pts.push_back(g[0].node);
+			}
+			if (idx.empty())
+				continue;
+			Eigen::MatrixXd xi(idx.size(), dim);
+			for (int r = 0; r < int(idx.size()); ++r)
+				xi.row(r) = J_lu.solve((pts[r] - x0).transpose()).transpose();
+			io::Evaluator::interpolate_at_local_vals(cm, 1, *cs.bases, *cs.geometry_bases, K, xi, coarse_sol, val, grad);
+			for (int r = 0; r < int(idx.size()); ++r)
+			{
+				x(idx[r]) = val(r, 0);
+				done[idx[r]] = 1;
+			}
+		}
+	}
+	const long missing = std::count(done.begin(), done.end(), 0);
+	if (missing > 0)
+		logger().warn("prolong_to_fine: {} of {} fine dofs not set (left 0)", missing, n);
+	return x;
+}
+
 enum class EstimatorNorm
 {
 	L2,
@@ -144,6 +204,7 @@ struct EstimatorResult
 {
 	Eigen::VectorXd l2;
 	Eigen::VectorXd h1_semi;
+	json fine_solver_info; // polysolve get_info() of the fine solve (Hypre: num_iterations, final_res_norm)
 	const Eigen::VectorXd &operator[](const EstimatorNorm norm) const { return norm == EstimatorNorm::L2 ? l2 : h1_semi; }
 };
 
@@ -160,18 +221,56 @@ inline EstimatorResult estimate_by_uniform_refinement_both(State &coarse_state, 
 		load_nc_mesh(fine_state, args); // only to initialise fine_state, the mesh it returns is dropped
 		fine.ready = true;
 	}
+	using clk = std::chrono::steady_clock;
+	const auto sec = [](clk::time_point a, clk::time_point b) { return std::chrono::duration<double>(b - a).count(); };
+	const auto t0 = clk::now();
 	std::unique_ptr<mesh::Mesh> fine_mesh = cs.mesh->copy();
 	fine_mesh->refine(1, 0.5);
 	fine_mesh->prepare_mesh();
 	fine_state.variational_formulation->set_mesh(std::move(fine_mesh));
 
+	const auto t1 = clk::now();
+	double t_prolong = 0;
+	auto *fine_scalar = dynamic_cast<varform::ScalarVarForm *>(fine_state.variational_formulation.get());
+	if (fine_scalar)
+	{
+		if (fine.warm_start)
+			fine_scalar->initial_guess_fn = [&]() {
+				const auto a = clk::now();
+				Eigen::VectorXd x0 = prolong_to_fine(cs, coarse_sol, fine_state.variational_formulation->output_space());
+				t_prolong = sec(a, clk::now());
+				return x0;
+			};
+		else
+			fine_scalar->initial_guess_fn = nullptr;
+	}
+	else if (fine.warm_start)
+		log_and_throw_error("--fine-warm-start: only scalar problems are supported");
+
+	const auto t2 = clk::now();
 	Eigen::MatrixXd fine_sol;
 	fine_state.solve(fine_sol);
 	disable_fp_traps();
+	const auto t3 = clk::now();
 
 	const io::OutputSpace fs = fine_state.variational_formulation->output_space();
 	if (!fs.mesh || !fs.bases || !fs.geometry_bases)
 		log_and_throw_error("estimate_by_uniform_refinement: the fine formulation has no bases.");
+	// fine args have output.advanced.compute_error = false (fine_args), so this only returns the stats
+	json fine_info = fine_state.variational_formulation->compute_errors(fine_sol).solver_info;
+	if (!fine_info.is_object()) // nonlinear solves report a list of subsolves; keep it under one key
+		fine_info = json{{"subsolves", fine_info}};
+	// estimator time breakdown (s): mesh copy+refine, the fine State solve (bases, assembly, linear solve,
+	// incl. the initial-guess copy), the initial-guess copy alone, PolyFEM's own fine timings
+	const io::OutRuntimeData &ft = fine_state.variational_formulation->output_timings();
+	fine_info["te_mesh"] = sec(t0, t1);
+	fine_info["te_fine_solve"] = sec(t2, t3);
+	fine_info["te_prolong"] = t_prolong;
+	fine_info["tf_basis"] = ft.building_basis_time;
+	fine_info["tf_assemble"] = ft.assembling_stiffness_mat_time;
+	fine_info["tf_rhs"] = ft.assigning_rhs_time;
+	fine_info["tf_solving"] = ft.solving_time;
+	const auto t4 = clk::now();
 
 	const mesh::Mesh &cm = *cs.mesh;
 	const mesh::Mesh &fm = *fs.mesh;
@@ -186,7 +285,7 @@ inline EstimatorResult estimate_by_uniform_refinement_both(State &coarse_state, 
 	for (int i = 0; i < dim; ++i)
 		ref_corners(i + 1, i) = 1;
 
-	EstimatorResult eta2{Eigen::VectorXd::Zero(cm.n_elements()), Eigen::VectorXd::Zero(cm.n_elements())};
+	EstimatorResult eta2{Eigen::VectorXd::Zero(cm.n_elements()), Eigen::VectorXd::Zero(cm.n_elements()), json()};
 	assembler::ElementAssemblyValues vals;
 	Eigen::MatrixXd corners, fine_val, fine_grad, coarse_val, coarse_grad;
 
@@ -214,6 +313,8 @@ inline EstimatorResult estimate_by_uniform_refinement_both(State &coarse_state, 
 			eta2.h1_semi(K) += ((fine_grad - coarse_grad).rowwise().squaredNorm().array() * w).sum();
 		}
 	}
+	fine_info["te_integrate"] = sec(t4, clk::now());
+	eta2.fine_solver_info = std::move(fine_info);
 	return eta2;
 }
 

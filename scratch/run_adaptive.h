@@ -16,6 +16,7 @@ inline void test_adaptive_refinement(const fs::path &dir, json args, const int p
 	args["space"]["discr_order"] = p;
 	args = route_outputs(args, dir, tag);
 	FineSolver fine;
+	fine.warm_start = opt.fine_warm_start;
 
 	const bool has_ref = opt.use_exact_error && has_reference(args);
 	if (!has_ref && !use_fine_estimator)
@@ -74,11 +75,15 @@ inline void test_adaptive_refinement(const fs::path &dir, json args, const int p
 		}
 
 		// PolyFEM's compute_element_errors is L2 only
+		json fine_info;
 		const auto estimate = [&]() {
 			lap.lap();
 			EstimatorResult e;
 			if (use_fine_estimator)
-				e = estimate_by_uniform_refinement_both(state, sol, args, fine);
+			{
+				e = estimate_by_uniform_refinement_both(state, sol, fine_args(args, opt), fine);
+				fine_info = e.fine_solver_info;
+			}
 			else
 				e.l2 = e.h1_semi = state.variational_formulation->compute_element_errors(sol);
 			t.estimator = lap.lap();
@@ -151,7 +156,7 @@ inline void test_adaptive_refinement(const fs::path &dir, json args, const int p
 
 		algorithm_cum += t.algorithm();
 		write_timing_row(csv, method_name(Method::NCNonUniform), p, std::to_string(theta),
-						 it, n_el, stats, t, algorithm_cum, pf, has_ref, eta_l2, eta_h1);
+						 it, n_el, stats, t, algorithm_cum, pf, has_ref, eta_l2, eta_h1, fine_info);
 
 		csv.flush();
 		if (!stop_reason.empty())

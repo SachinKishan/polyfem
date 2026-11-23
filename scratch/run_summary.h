@@ -56,6 +56,8 @@ inline void write_run_summary(const fs::path &run_dir, const int argc, char **ar
 		<< "Marking norm: " << norm_name(opt.mark_norm) << "\n"
 		<< "Stopping norm: " << norm_name(opt.stop_norm) << "\n"
 		<< "Marking scheme: " << scheme_name(opt.mark_scheme) << "\n"
+		<< "Fine (estimator) linear solver: " << (opt.fine_linear_solver.is_null() ? std::string("same as the coarse solve") : opt.fine_linear_solver.dump()) << "\n"
+		<< "Fine solve initial guess: " << (opt.fine_warm_start ? "coarse solution" : "zero") << "\n"
 		<< "Error measure: " << (opt.use_exact_error && has_reference(args) ? "exact" : "estimator") << "\n"
 		<< "Thetas:";
 	for (const double theta : opt.thetas)

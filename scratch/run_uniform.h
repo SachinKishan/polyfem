@@ -59,6 +59,7 @@ inline UniformResult test_uniform_refinement(const fs::path &dir, json args, con
 	if (!has_ref && !non_conforming)
 		std::cout << tag << ": no output.reference and the estimator needs an NC mesh, errors are not computed" << std::endl;
 	FineSolver fine;
+	fine.warm_start = opt.fine_warm_start;
 
 	if (opt.reuse_finished_runs)
 	{
@@ -130,12 +131,14 @@ inline UniformResult test_uniform_refinement(const fs::path &dir, json args, con
 		}
 
 		double eta_l2 = std::numeric_limits<double>::quiet_NaN(), eta_h1 = eta_l2;
+		json fine_info;
 		if (use_estimator)
 		{
 			lap.lap();
-			const EstimatorResult e = estimate_by_uniform_refinement_both(state, sol, args, fine);
+			const EstimatorResult e = estimate_by_uniform_refinement_both(state, sol, fine_args(args, opt), fine);
 			eta_l2 = std::sqrt(e.l2.sum());
 			eta_h1 = std::sqrt(e.h1_semi.sum());
+			fine_info = e.fine_solver_info;
 			t.conv_check = lap.lap(); // not counted
 		}
 		const double err = stop_error(opt, has_ref, stats, eta_l2, eta_h1);
@@ -168,7 +171,7 @@ inline UniformResult test_uniform_refinement(const fs::path &dir, json args, con
 
 		algorithm_cum += t.algorithm();
 		write_timing_row(csv, method_name(method), p, "NA",
-						 it, n_el, stats, t, algorithm_cum, pf, has_ref, eta_l2, eta_h1);
+						 it, n_el, stats, t, algorithm_cum, pf, has_ref, eta_l2, eta_h1, fine_info);
 
 		csv.flush();
 		if (!stop_reason.empty())

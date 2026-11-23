@@ -4,6 +4,7 @@
 
 #include <polyfem/utils/par_for.hpp>
 
+#include <fstream>
 #include <sstream>
 #include <thread>
 
@@ -62,6 +63,15 @@ inline void parse_command_line(const int argc, char **argv, StopCriteria &stop, 
 			opt.max_threads = std::stoi(value());
 		else if (a == "--exact-error")
 			opt.use_exact_error = true;
+		else if (a == "--fine-solver")
+		{
+			// json object (inline, or a file) for solver.linear of the estimator's fine solve, e.g.
+			// '{"solver": "Hypre", "Hypre": {"tolerance": 1e-6}}'; the coarse solve keeps the args file's solver
+			const std::string v = value();
+			opt.fine_linear_solver = (!v.empty() && v[0] == '{') ? json::parse(v) : json::parse(std::ifstream(v));
+		}
+		else if (a == "--fine-warm-start")
+			opt.fine_warm_start = true;
 		else if (a == "--no-mesh-dumps")
 			opt.dump_meshes = false;
 		else if (a == "--thetas")
@@ -102,7 +112,7 @@ inline void parse_command_line(const int argc, char **argv, StopCriteria &stop, 
 				log_and_throw_error("--mark-scheme takes error or element, got {}", v);
 		}
 		else if (a.rfind("--", 0) == 0)
-			log_and_throw_error("unknown flag {} (known: --levels, --abs-tol, --rel-tol, --uniform-abs-tol, --uniform-rel-tol, --max-dofs, --fresh, --threads, --mark-norm, --stop-norm, --mark-scheme, --exact-error, --thetas, --no-mesh-dumps)", a);
+			log_and_throw_error("unknown flag {} (known: --levels, --abs-tol, --rel-tol, --uniform-abs-tol, --uniform-rel-tol, --max-dofs, --fresh, --threads, --mark-norm, --stop-norm, --mark-scheme, --exact-error, --fine-solver, --fine-warm-start, --thetas, --no-mesh-dumps)", a);
 		else
 			pos.push_back(a);
 	}
@@ -117,4 +127,14 @@ inline void parse_command_line(const int argc, char **argv, StopCriteria &stop, 
 		opt.mode = pos[1];
 	if (pos.size() > 2)
 		opt.args_file = pos[2];
+}
+
+// args of the estimator's fine solve: the run's args, with solver.linear replaced by --fine-solver
+inline json fine_args(const json &args, const Options &opt)
+{
+	json a = args;
+	if (!opt.fine_linear_solver.is_null())
+		a["solver"]["linear"] = opt.fine_linear_solver;
+	a["output"]["advanced"]["compute_error"] = false; // never computed on the fine mesh; compute_errors then just returns the stats
+	return a;
 }
